@@ -6,6 +6,7 @@ import {
   saveGameSession, 
   createInitialPlayer 
 } from '../db/firestore';
+import { runGameLifecycle } from './gameHandler';
 
 export function registerLobbyHandlers(io: Server, socket: Socket) {
   const user = (socket as any).user;
@@ -113,6 +114,8 @@ export function registerLobbyHandlers(io: Server, socket: Socket) {
 
       io.to(sessionId).emit('game:started', { session });
       console.log(`[Lobby] Host rozpoczął grę: ${sessionId}`);
+      
+      await runGameLifecycle(io, session);
     } catch (error: any) {
       socket.emit('lobby:error', { message: 'Nie udało się rozpocząć gry: ' + error.message });
     }

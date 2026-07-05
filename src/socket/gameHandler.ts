@@ -1,10 +1,88 @@
 import { Server, Socket } from 'socket.io';
 import { getGameSession, saveGameSession } from '../db/firestore';
-import { GameSession, PlayerTurnIntent } from '../game/game.types';
+import { GameSession, PlayerTurnIntent, GamePhase } from '../game/game.types';
 import { progressToNextPhase } from '../game/engine';
 
 // Mapa przechowująca aktywne timery dla każdej sesji gry
-const activeTimers: Record<string, NodeJS.Timeout> = {};
+export const activeTimers: Record<string, NodeJS.Timeout> = {};
+
+/**
+ * Główna pętla cyklu życia gry, sterująca automatycznymi przejściami faz deweloperskich/AFK
+ */
+export async function runGameLifecycle(io: Server, session: GameSession): Promise<void> {
+  // Czyścimy stary timer jeśli istnieje
+  if (activeTimers[session.sessionId]) {
+    clearTimeout(activeTimers[session.sessionId]);
+    delete activeTimers[session.sessionId];
+  }
+
+  // Automatycznie rozstrzygamy fazy natychmiastowe (bez wejścia gracza)
+  let needsInput = false;
+  while (!needsInput && session.status === 'ACTIVE') {
+    const phase = session.currentPhase;
+    if (
+      phase === GamePhase.LICYTACJA ||
+      phase === GamePhase.HIPERSKOKI ||
+      phase === GamePhase.TRANSAKCJE ||
+      phase === GamePhase.INWESTYCJE
+    ) {
+      needsInput = true;
+      break;
+    }
+
+    // Wykonujemy krok maszyny stanów
+    progressToNextPhase(session);
+  }
+
+  // Obsługa pauzy bojowej lub końca gry
+  if (session.status === 'COMBAT_PAUSE' || session.status === 'FINISHED') {
+    io.to(session.sessionId).emit('game:state', session);
+    return;
+  }
+
+  if (needsInput) {
+    const durationSeconds = getPhaseDuration(session.currentPhase);
+    session.phaseEndTimeMs = Date.now() + durationSeconds * 1000;
+    await saveGameSession(session);
+
+    // Rozsyłamy status do pokoju
+    io.to(session.sessionId).emit('game:phaseStarted', {
+      phase: session.currentPhase,
+      phaseEndTimeMs: session.phaseEndTimeMs,
+      session
+    });
+
+    // Rejestrujemy stoper bezpieczeństwa (AFK)
+    activeTimers[session.sessionId] = setTimeout(async () => {
+      try {
+        const updatedSession = await getGameSession(session.sessionId);
+        if (updatedSession && updatedSession.status === 'ACTIVE' && updatedSession.currentPhase === session.currentPhase) {
+          console.log(`[Timer] Czas minął dla Fazy ${updatedSession.currentPhase} w sesji ${updatedSession.sessionId}. Auto-resolve.`);
+          progressToNextPhase(updatedSession);
+          delete updatedSession.phaseEndTimeMs;
+          await saveGameSession(updatedSession);
+          
+          // Uruchamiamy cykl dla kolejnej fazy
+          await runGameLifecycle(io, updatedSession);
+        }
+      } catch (err) {
+        console.error('[Timer] Błąd stopera fazy:', err);
+      }
+    }, durationSeconds * 1000);
+  } else {
+    io.to(session.sessionId).emit('game:state', session);
+  }
+}
+
+function getPhaseDuration(phase: number): number {
+  switch (phase) {
+    case GamePhase.LICYTACJA: return 20;   // 20 sekund
+    case GamePhase.HIPERSKOKI: return 30;   // 30 sekund
+    case GamePhase.TRANSAKCJE: return 40;   // 40 sekund
+    case GamePhase.INWESTYCJE: return 30;   // 30 sekund
+    default: return 0;
+  }
+}
 
 export function registerGameHandlers(io: Server, socket: Socket) {
   const user = (socket as any).user;
@@ -16,17 +94,14 @@ export function registerGameHandlers(io: Server, socket: Socket) {
       const session = await getGameSession(sessionId);
       if (!session) return socket.emit('game:error', { message: 'Sesja nie istnieje' });
 
-      // Sprawdzenie czy gra jest aktywna
       if (session.status !== 'ACTIVE') {
         return socket.emit('game:error', { message: 'Gra nie jest aktywna' });
       }
 
-      // Sprawdzenie czy czas fazy nie minął
       if (session.phaseEndTimeMs && Date.now() > session.phaseEndTimeMs) {
         return socket.emit('game:error', { message: 'Czas na deklaracje w tej fazie minął!' });
       }
 
-      // Zapisujemy intencje gracza do bufora
       if (!session.turnIntents[user.uid]) {
         session.turnIntents[user.uid] = { 
           initiativeBidHT: 0, 
@@ -46,11 +121,32 @@ export function registerGameHandlers(io: Server, socket: Socket) {
         isSubmitted: true
       };
 
-      await saveGameSession(session);
-      socket.emit('game:orderReceived', { success: true });
-      
-      // Powiadamiamy innych w pokoju, że gracz zgłosił gotowość (bez ujawniania jego ofert)
-      io.to(sessionId).emit('game:playerReady', { uid: user.uid });
+      const allPlayers = Object.keys(session.players);
+      const allReady = allPlayers.every(uid => {
+        const playerIntent = session.turnIntents[uid];
+        return playerIntent && playerIntent.isSubmitted;
+      });
+
+      if (allReady) {
+        // Wszyscy gotowi - kasujemy stoper
+        if (activeTimers[sessionId]) {
+          clearTimeout(activeTimers[sessionId]);
+          delete activeTimers[sessionId];
+        }
+
+        progressToNextPhase(session);
+        delete session.phaseEndTimeMs;
+        await saveGameSession(session);
+
+        console.log(`[Engine] Wszyscy gotowi. Auto-progres sesji ${sessionId} do Fazy ${session.currentPhase}`);
+        
+        // Puszczamy cykl dalej (może przejść przez kolejne fazy automatyczne)
+        await runGameLifecycle(io, session);
+      } else {
+        await saveGameSession(session);
+        socket.emit('game:orderReceived', { success: true });
+        io.to(sessionId).emit('game:playerReady', { uid: user.uid });
+      }
 
     } catch (error: any) {
       socket.emit('game:error', { message: error.message });
