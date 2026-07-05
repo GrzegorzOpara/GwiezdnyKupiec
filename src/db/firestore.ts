@@ -1,5 +1,6 @@
 import { Firestore } from '@google-cloud/firestore';
-import { User, GameSession, Player, Powiazania, Statek, MarketState, TowarId } from '../game/game.types';
+import { User, GameSession, Player, Statek, MarketState } from '../game/game.types';
+import { generateInitialConnections } from '../game/utils';
 
 // Inicjalizacja Firestore z uwzględnieniem emulatora
 const db = new Firestore({
@@ -63,22 +64,6 @@ function getInitialMarketState(): Record<string, MarketState> {
 // -----------------------------------------------------------------------------
 // POMOCNIKI KREACJI GRACZA/POSTACI
 // -----------------------------------------------------------------------------
-
-function rollDice(): number {
-  return Math.floor(Math.random() * 6) + 1;
-}
-
-function generateInitialConnections(): Powiazania {
-  const total = rollDice() + rollDice(); // rzut 2K
-  let p = 0, g = 0, k = 0;
-  for (let i = 0; i < total; i++) {
-    const rand = Math.floor(Math.random() * 3);
-    if (rand === 0 && p < 10) p++;
-    else if (rand === 1 && g < 10) g++;
-    else if (k < 10) k++;
-  }
-  return { polityczne: p, gospodarcze: g, kryminalne: k };
-}
 
 export function createInitialPlayer(uid: string, characterName: string): Player {
   const startingShip: Statek = {
