@@ -2,9 +2,17 @@ import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { createClient } from 'redis';
-import { Firestore } from '@google-cloud/firestore';
 import { OAuth2Client } from 'google-auth-library';
 import verifyGoogleToken, { AuthenticatedRequest } from './auth/authMiddleware';
+import { User, GameSession } from './game/game.types';
+import {
+  saveUser,
+  createGameSession,
+  getGameSession,
+  saveGameSession,
+  getActiveSessions,
+  createInitialPlayer
+} from './db/firestore';
 
 const app = express();
 const httpServer = createServer(app);
@@ -14,15 +22,7 @@ app.use(express.json());
 // Inicjalizacja klienta Google Auth do użytku w WebSockets
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
-// 1. Inicjalizacja Firestore (w tym wsparcie dla Emulatora)
-if (process.env.FIRESTORE_EMULATOR_HOST) {
-  console.log(`[Firestore] Uruchamianie w trybie EMULATORA na: ${process.env.FIRESTORE_EMULATOR_HOST}`);
-}
-const db = new Firestore({
-  projectId: process.env.FIRESTORE_PROJECT_ID || 'gwiezdny-kupiec-dev',
-});
-
-// 2. Inicjalizacja Redis
+// Inicjalizacja Redis
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
 const redisClient = createClient({ url: redisUrl });
 
@@ -38,7 +38,7 @@ async function connectRedis() {
 }
 connectRedis();
 
-// 3. Routing Express
+// Routing Express
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
@@ -50,18 +50,37 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Zabezpieczony endpoint testowy
-app.get('/api/user/profile', verifyGoogleToken as any, (req: AuthenticatedRequest, res) => {
-  res.json({
-    message: 'Dostęp autoryzowany pomyślnie!',
-    user: req.user,
-  });
+// Zabezpieczony endpoint rejestracji / profilu użytkownika
+app.get('/api/user/profile', verifyGoogleToken as any, async (req: AuthenticatedRequest, res) => {
+  try {
+    const userPayload = req.user;
+    if (!userPayload) {
+      return res.status(401).json({ error: 'Niepoprawne dane uwierzytelniania' });
+    }
+
+    const user: User = {
+      uid: userPayload.uid,
+      displayName: userPayload.name || 'Nieznany Gracz',
+      email: userPayload.email || '',
+      lastActiveAt: new Date().toISOString(),
+    };
+
+    await saveUser(user);
+
+    res.json({
+      message: 'Profil załadowany i zapisany pomyślnie!',
+      user,
+    });
+  } catch (error: any) {
+    console.error('[API] Błąd profilu użytkownika:', error.message);
+    res.status(500).json({ error: 'Wystąpił błąd serwera' });
+  }
 });
 
-// 4. Konfiguracja Socket.io z zabezpieczeniem (Google Auth Middleware)
+// Konfiguracja Socket.io z zabezpieczeniem (Google Auth Middleware)
 const io = new Server(httpServer, {
   cors: {
-    origin: '*', // W środowisku produkcyjnym należy ograniczyć do konkretnej domeny
+    origin: '*',
     methods: ['GET', 'POST']
   }
 });
@@ -74,11 +93,9 @@ io.use(async (socket, next) => {
     return next(new Error('Authentication error: Token is required'));
   }
 
-  // Wyodrębnienie samego tokenu jeśli przekazano jako "Bearer <token>"
   const cleanedToken = token.startsWith('Bearer ') ? token.split(' ')[1] : token;
 
   try {
-    // Ułatwienie testowe
     if (cleanedToken.startsWith('test-token-')) {
       (socket as any).user = {
         uid: cleanedToken.replace('test-token-', ''),
@@ -115,15 +132,139 @@ io.use(async (socket, next) => {
 
 io.on('connection', (socket) => {
   const user = (socket as any).user;
-  console.log(`[Socket.io] Połączono gracza: ${user.name} (Socket ID: ${socket.id})`);
+  console.log(`[Socket.io] Połączono użytkownika: ${user.name} (Socket ID: ${socket.id})`);
 
   socket.emit('welcome', {
     message: `Witaj w Gwiezdnym Kupcu, ${user.name}!`,
     userId: user.uid,
   });
 
+  // ---------------------------------------------------------------------------
+  // OBSŁUGA LOBBY (WebSockets)
+  // ---------------------------------------------------------------------------
+
+  // 1. Pobranie listy aktywnych gier w lobby
+  socket.on('lobby:list', async () => {
+    try {
+      const activeSessions = await getActiveSessions();
+      const mappedSessions = activeSessions.map(s => ({
+        sessionId: s.sessionId,
+        hostUid: s.hostUid,
+        playersCount: Object.keys(s.players).length,
+        playersNames: Object.values(s.players).map(p => p.characterName),
+        createdAt: s.createdAt
+      }));
+      socket.emit('lobby:list:response', { success: true, lobbies: mappedSessions });
+    } catch (error: any) {
+      socket.emit('lobby:error', { message: 'Nie udało się pobrać listy lobby: ' + error.message });
+    }
+  });
+
+  // 2. Utworzenie nowej gry i dołączenie jako postać gracza
+  socket.on('lobby:create', async (data: { sessionId: string; characterName: string }) => {
+    try {
+      const { sessionId, characterName } = data;
+      if (!sessionId || !characterName) {
+        return socket.emit('lobby:error', { message: 'ID sesji oraz nazwa postaci są wymagane.' });
+      }
+
+      // Sprawdzenie czy gra już istnieje
+      const existing = await getGameSession(sessionId);
+      if (existing) {
+        return socket.emit('lobby:error', { message: `Sesja gry o ID '${sessionId}' już istnieje.` });
+      }
+
+      // Stworzenie sesji
+      const session = await createGameSession(sessionId, user.uid);
+      
+      // Dodanie gracza startowego
+      const player = createInitialPlayer(user.uid, characterName);
+      session.players[user.uid] = player;
+      
+      await saveGameSession(session);
+
+      socket.join(sessionId);
+      socket.emit('lobby:joined', { success: true, session });
+      console.log(`[Lobby] Gracz ${characterName} (UID: ${user.uid}) stworzył i dołączył do gry: ${sessionId}`);
+    } catch (error: any) {
+      socket.emit('lobby:error', { message: 'Nie udało się stworzyć gry: ' + error.message });
+    }
+  });
+
+  // 3. Dołączenie do istniejącej gry
+  socket.on('lobby:join', async (data: { sessionId: string; characterName: string }) => {
+    try {
+      const { sessionId, characterName } = data;
+      if (!sessionId || !characterName) {
+        return socket.emit('lobby:error', { message: 'ID sesji oraz nazwa postaci są wymagane.' });
+      }
+
+      const session = await getGameSession(sessionId);
+      if (!session) {
+        return socket.emit('lobby:error', { message: `Sesja gry o ID '${sessionId}' nie istnieje.` });
+      }
+
+      if (session.status !== 'LOBBY') {
+        return socket.emit('lobby:error', { message: 'Ta gra już się rozpoczęła lub zakończyła.' });
+      }
+
+      const playersCount = Object.keys(session.players).length;
+      if (playersCount >= 6) {
+        return socket.emit('lobby:error', { message: 'Ta gra jest już pełna (maksymalnie 6 graczy).' });
+      }
+
+      // Stworzenie i dodanie nowej postaci
+      const player = createInitialPlayer(user.uid, characterName);
+      session.players[user.uid] = player;
+
+      await saveGameSession(session);
+
+      socket.join(sessionId);
+      socket.emit('lobby:joined', { success: true, session });
+      
+      // Poinformowanie innych graczy w pokoju o dołączeniu
+      io.to(sessionId).emit('lobby:updated', { session });
+      console.log(`[Lobby] Gracz ${characterName} (UID: ${user.uid}) dołączył do gry: ${sessionId}`);
+    } catch (error: any) {
+      socket.emit('lobby:error', { message: 'Nie udało się dołączyć do gry: ' + error.message });
+    }
+  });
+
+  // 4. Rozpoczęcie gry przez hosta
+  socket.on('lobby:start', async (data: { sessionId: string }) => {
+    try {
+      const { sessionId } = data;
+      if (!sessionId) {
+        return socket.emit('lobby:error', { message: 'ID sesji jest wymagane.' });
+      }
+
+      const session = await getGameSession(sessionId);
+      if (!session) {
+        return socket.emit('lobby:error', { message: `Sesja gry o ID '${sessionId}' nie istnieje.` });
+      }
+
+      if (session.hostUid !== user.uid) {
+        return socket.emit('lobby:error', { message: 'Tylko założyciel gry (host) może ją rozpocząć.' });
+      }
+
+      if (session.status !== 'LOBBY') {
+        return socket.emit('lobby:error', { message: 'Gra została już uruchomiona.' });
+      }
+
+      // Zmiana statusu na ACTIVE
+      session.status = 'ACTIVE';
+      await saveGameSession(session);
+
+      // Poinformowanie wszystkich w pokoju o starcie gry
+      io.to(sessionId).emit('game:started', { session });
+      console.log(`[Lobby] Host rozpoczął grę: ${sessionId}`);
+    } catch (error: any) {
+      socket.emit('lobby:error', { message: 'Nie udało się rozpocząć gry: ' + error.message });
+    }
+  });
+
   socket.on('disconnect', () => {
-    console.log(`[Socket.io] Rozłączono gracza: ${user.name} (Socket ID: ${socket.id})`);
+    console.log(`[Socket.io] Rozłączono użytkownika: ${user.name} (Socket ID: ${socket.id})`);
   });
 });
 
