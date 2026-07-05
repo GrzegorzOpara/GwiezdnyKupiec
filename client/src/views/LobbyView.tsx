@@ -38,7 +38,7 @@ export const LobbyView: React.FC = () => {
           <div>
             <h2 className="hud-title" style={{ fontSize: '1.4rem' }}>Centrum <span className="hud-accent">Dowodzenia</span></h2>
             <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px' }}>
-              Zarejestrowany jako: {userToken?.split('-')[1]}
+              Zarejestrowany jako: {userToken?.startsWith('test-token-') ? userToken.substring(11).split('-')[0] : userToken}
             </span>
           </div>
           <button onClick={logout} className="btn-futuristic danger" style={{ padding: '0.4rem 0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem' }}>
