@@ -1,6 +1,7 @@
 import { GameSession, GamePhase, PlayerTurnIntent } from './game.types';
 import { executeTransaction, resolveMarketFluctuation } from './economy';
 import { rollMultipleDice } from './utils';
+import { applyRandomMarketEvent } from './events';
 
 /**
  * Przetwarza koniec Fazy 1 (Licytacja).
@@ -89,26 +90,135 @@ export function resolveTransakcjePhase(session: GameSession): void {
       resolveMarketFluctuation(market, commodity);
     }
   }
+}
 
-  // Czyszczenie bufora na następną turę
+/**
+ * Faza 3 i 6: Wiadomości i Okazje
+ * Uruchamia zdarzenia rynkowe z events.ts
+ */
+export function resolveWiadomosciOkazjePhase(session: GameSession): void {
+  const eventMsg = applyRandomMarketEvent(session);
+  if (eventMsg) {
+    console.log(`[Engine] Zdarzenie globalne w sesji ${session.sessionId}: ${eventMsg}`);
+  }
+}
+
+/**
+ * Faza 4: Hiperskoki
+ * Przesuwa statki zgodnie z deklaracjami graczy, pobiera paliwo/HT.
+ */
+export function resolveHiperskokiPhase(session: GameSession): void {
+  for (const uid of session.initiativeOrder) {
+    const player = session.players[uid];
+    const intent = session.turnIntents[uid];
+    if (!intent || !intent.shipMoves || intent.shipMoves.length === 0) continue;
+
+    for (const move of intent.shipMoves) {
+      const ship = player.statki.find(s => s.id === move.shipId);
+      if (ship) {
+        // Koszt skoku - uproszczone 20 HT za każdy lot
+        const jumpCost = 20; 
+        if (player.gotowka >= jumpCost) {
+          player.gotowka -= jumpCost;
+          ship.lokacja.systemId = move.targetSystemId;
+          
+          // Rzut na uszkodzenia, jeśli brak "Bezpiecznego Skoku"
+          if (!ship.moduly.includes('Bezpieczny skok')) {
+            const dangerRoll = rollMultipleDice(2);
+            if (dangerRoll <= 4) {
+               ship.uszkodzenia.push('Uszkodzenie Kadłuba (nadprzestrzeń)');
+               console.warn(`[Engine] Statek ${ship.nazwa} gracza ${player.characterName} uszkodzony w nadprzestrzeni!`);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Faza 7: Inwestycje
+ * Gracze kupują nowe statki, płacą podatki od utrzymania floty.
+ */
+export function resolveInwestycjePhase(session: GameSession): void {
+  for (const uid of session.initiativeOrder) {
+    const player = session.players[uid];
+    const intent = session.turnIntents[uid];
+    if (!intent) continue;
+
+    // Pobranie podatku imperialnego na koniec tury (10 HT od każdego statku)
+    const tax = player.statki.length * 10;
+    player.gotowka = Math.max(0, player.gotowka - tax);
+
+    if (intent.shipPurchases && intent.shipPurchases.length > 0) {
+      for (const purchase of intent.shipPurchases) {
+        // Oblicz koszt (200 HT + 50 za każdy dodany moduł)
+        const cost = 200 + purchase.modules.length * 50;
+        if (player.gotowka >= cost) {
+          player.gotowka -= cost;
+          player.statki.push({
+            id: `ship_${Math.random().toString(36).substr(2, 9)}`,
+            nazwa: `Statek Floty ${player.characterName}`,
+            typKadluba: purchase.hullType,
+            moduly: purchase.modules,
+            klasaZalogi: 'C',
+            ladunek: { izotopy: 0, polimery: 0, podzespoly: 0, zywnosc: 0 },
+            pasazerowie: 0,
+            lokacja: { systemId: purchase.systemId, obszar: 'STOCZNIA' },
+            uszkodzenia: []
+          });
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Faza 8: Kontrola
+ * Zakończenie tury, czyszczenie intencji graczy.
+ */
+export function resolveKontrolaPhase(session: GameSession): void {
+  // Resetujemy intencje do pustego obiektu przed nową turą
   session.turnIntents = {};
 }
 
 /**
- * Przechodzi do następnej fazy w MVP (Licytacja -> Inicjatywa -> Transakcje -> Koniec tury)
+ * Przechodzi do następnej fazy i wywołuje odpowiednie rezolwery z maszyny stanów.
  */
 export function progressToNextPhase(session: GameSession): void {
-  if (session.currentPhase === GamePhase.LICYTACJA) {
-    resolveLicytacjaPhase(session);
-    session.currentPhase = GamePhase.INICJATYWA;
-  } else if (session.currentPhase === GamePhase.INICJATYWA) {
-    resolveInicjatywaPhase(session);
-    // Przeskakujemy na razie Fazy 3 i 4 dla MVP
-    session.currentPhase = GamePhase.TRANSAKCJE;
-  } else if (session.currentPhase === GamePhase.TRANSAKCJE) {
-    resolveTransakcjePhase(session);
-    // Koniec tury, powrót do fazy 1
-    session.currentTurn += 1;
-    session.currentPhase = GamePhase.LICYTACJA;
+  switch (session.currentPhase) {
+    case GamePhase.LICYTACJA:
+      resolveLicytacjaPhase(session);
+      session.currentPhase = GamePhase.INICJATYWA;
+      break;
+    case GamePhase.INICJATYWA:
+      resolveInicjatywaPhase(session);
+      session.currentPhase = GamePhase.WIADOMOSCI;
+      break;
+    case GamePhase.WIADOMOSCI:
+      resolveWiadomosciOkazjePhase(session);
+      session.currentPhase = GamePhase.HIPERSKOKI;
+      break;
+    case GamePhase.HIPERSKOKI:
+      resolveHiperskokiPhase(session);
+      session.currentPhase = GamePhase.TRANSAKCJE;
+      break;
+    case GamePhase.TRANSAKCJE:
+      resolveTransakcjePhase(session);
+      session.currentPhase = GamePhase.OKAZJE;
+      break;
+    case GamePhase.OKAZJE:
+      resolveWiadomosciOkazjePhase(session);
+      session.currentPhase = GamePhase.INWESTYCJE;
+      break;
+    case GamePhase.INWESTYCJE:
+      resolveInwestycjePhase(session);
+      session.currentPhase = GamePhase.KONTROLA;
+      break;
+    case GamePhase.KONTROLA:
+      resolveKontrolaPhase(session);
+      session.currentTurn += 1;
+      session.currentPhase = GamePhase.LICYTACJA;
+      break;
   }
 }

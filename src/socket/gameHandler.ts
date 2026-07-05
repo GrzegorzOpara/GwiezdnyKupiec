@@ -28,7 +28,13 @@ export function registerGameHandlers(io: Server, socket: Socket) {
 
       // Zapisujemy intencje gracza do bufora
       if (!session.turnIntents[user.uid]) {
-        session.turnIntents[user.uid] = { initiativeBidHT: 0, offers: [], isSubmitted: false };
+        session.turnIntents[user.uid] = { 
+          initiativeBidHT: 0, 
+          offers: [], 
+          shipMoves: [], 
+          shipPurchases: [], 
+          isSubmitted: false 
+        };
       }
       
       session.turnIntents[user.uid] = {

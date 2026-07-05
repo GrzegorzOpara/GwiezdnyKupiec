@@ -76,6 +76,8 @@ export interface TransactionOffer {
 export interface PlayerTurnIntent {
   initiativeBidHT: number;
   offers: TransactionOffer[];
+  shipMoves: { shipId: string; targetSystemId: string }[];
+  shipPurchases: { hullType: string; modules: string[]; systemId: string }[];
   isSubmitted: boolean; // Czy gracz już zatwierdził swoją turę
 }
 

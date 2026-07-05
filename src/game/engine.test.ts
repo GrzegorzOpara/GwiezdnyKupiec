@@ -39,8 +39,8 @@ describe('Silnik Gry (Maszyna Stanów) - engine.ts', () => {
         }
       },
       turnIntents: {
-        'playerA': { initiativeBidHT: 20, offers: [], isSubmitted: true },
-        'playerB': { initiativeBidHT: 60, offers: [], isSubmitted: true }, // chce wydać 60, a ma 50
+        'playerA': { initiativeBidHT: 20, offers: [], shipMoves: [], shipPurchases: [], isSubmitted: true },
+        'playerB': { initiativeBidHT: 60, offers: [], shipMoves: [], shipPurchases: [], isSubmitted: true }, // chce wydać 60, a ma 50
       }
     };
   });
@@ -111,35 +111,61 @@ describe('Silnik Gry (Maszyna Stanów) - engine.ts', () => {
       expect(session.marketState['TauCeti'].prices.izotopy).toBe(12);
     });
 
-    it('czyści bufor intencji (turnIntents) na koniec fazy transakcji', () => {
+    it('pozostawia bufor intencji (turnIntents) aż do fazy Kontroli', () => {
       resolveTransakcjePhase(session);
-      expect(Object.keys(session.turnIntents).length).toBe(0);
+      expect(Object.keys(session.turnIntents).length).toBe(2);
     });
   });
 
   describe('progressToNextPhase', () => {
-    it('przechodzi płynnie przez cały MVP flow (Licytacja -> Inicjatywa -> Transakcje -> Koniec tury)', () => {
-      // Faza 1: Licytacja
+    it('przechodzi płynnie przez pełne 8 faz tury', () => {
+      // 1 -> 2
       progressToNextPhase(session);
       expect(session.currentPhase).toBe(GamePhase.INICJATYWA);
-      expect(session.players['playerA'].gotowka).toBe(80);
       
-      // Faza 2: Inicjatywa
+      // 2 -> 3
+      progressToNextPhase(session);
+      expect(session.currentPhase).toBe(GamePhase.WIADOMOSCI);
+      
+      // 3 -> 4
+      progressToNextPhase(session);
+      expect(session.currentPhase).toBe(GamePhase.HIPERSKOKI);
+      
+      // Dodajemy statek do ruchu dla playerA w fazie 4
+      session.players['playerA'].statki.push({
+        id: 'ship_1', nazwa: 'A', typKadluba: 'Klarnet', moduly: [], klasaZalogi: 'C',
+        ladunek: { izotopy: 0, polimery: 0, podzespoly: 0, zywnosc: 0 },
+        pasazerowie: 0, lokacja: { systemId: 'OldSystem', obszar: 'PORT' }, uszkodzenia: []
+      });
+      session.turnIntents['playerA'].shipMoves = [{ shipId: 'ship_1', targetSystemId: 'NewSystem' }];
+      
+      // 4 -> 5
       progressToNextPhase(session);
       expect(session.currentPhase).toBe(GamePhase.TRANSAKCJE);
-      expect(session.initiativeOrder.length).toBe(2);
-      
-      // Dodajmy ofertę testową w transakcjach
-      session.turnIntents['playerA'] = { initiativeBidHT: 0, isSubmitted: true, offers: [
-        { playerId: 'playerA', systemId: 'TauCeti', commodity: 'izotopy', type: 'BUY', price: 10, amount: 2 }
-      ]};
+      // Statek przeniósł się, kosztowało 20 HT (z 80 na 60 HT)
+      expect(session.players['playerA'].statki[0].lokacja.systemId).toBe('NewSystem');
+      expect(session.players['playerA'].gotowka).toBe(60);
 
-      // Faza 5 (MVP): Transakcje
+      // 5 -> 6
       progressToNextPhase(session);
-      expect(session.currentPhase).toBe(GamePhase.LICYTACJA); // Koniec MVP tury -> Faza 1
-      expect(session.currentTurn).toBe(2); // Kolejna tura
+      expect(session.currentPhase).toBe(GamePhase.OKAZJE);
+
+      // 6 -> 7
+      progressToNextPhase(session);
+      expect(session.currentPhase).toBe(GamePhase.INWESTYCJE);
       
-      expect(session.players['playerA'].gotowka).toBe(60); // 80 - 20 (kupno)
+      // 7 -> 8
+      // Podatek za 1 statek = 10 HT. PlayerA ma 60 HT -> 50 HT.
+      progressToNextPhase(session);
+      expect(session.currentPhase).toBe(GamePhase.KONTROLA);
+      expect(session.players['playerA'].gotowka).toBe(50);
+      expect(Object.keys(session.turnIntents).length).toBe(2); // Jeszcze nie wyczyszczone przed wykonaniem 8
+
+      // 8 -> 1 (Nowa tura)
+      progressToNextPhase(session);
+      expect(session.currentPhase).toBe(GamePhase.LICYTACJA);
+      expect(session.currentTurn).toBe(2);
+      expect(Object.keys(session.turnIntents).length).toBe(0); // Czyszczenie po Kontroli
     });
   });
 });
