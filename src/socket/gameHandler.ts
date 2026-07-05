@@ -1,7 +1,7 @@
 import { Server, Socket } from 'socket.io';
 import { getGameSession, saveGameSession } from '../db/firestore';
 import { GameSession, PlayerTurnIntent, GamePhase } from '../game/game.types';
-import { progressToNextPhase } from '../game/engine';
+import { progressToNextPhase, resumeFromCombatPhase } from '../game/engine';
 
 // Mapa przechowująca aktywne timery dla każdej sesji gry
 export const activeTimers: Record<string, NodeJS.Timeout> = {};
@@ -231,6 +231,31 @@ export function registerGameHandlers(io: Server, socket: Socket) {
           console.error(`[Engine] Błąd podczas automatycznego przejścia fazy:`, err);
         }
       }, durationMs);
+
+    } catch (error: any) {
+      socket.emit('game:error', { message: error.message });
+    }
+  });
+
+  // Gracz podejmuje decyzję o walce
+  socket.on('game:combatDecision', async (data: { sessionId: string; decision: 'WALKA' | 'UCIECZKA' | 'PODDANIE' }) => {
+    try {
+      const { sessionId, decision } = data;
+      const session = await getGameSession(sessionId);
+      if (!session) return socket.emit('game:error', { message: 'Sesja nie istnieje' });
+
+      if (session.status !== 'COMBAT_PAUSE') {
+        return socket.emit('game:error', { message: 'Gra nie jest w fazie walki' });
+      }
+
+      console.log(`[Combat] Gracz ${user.uid} podjął decyzję: ${decision} w sesji ${sessionId}`);
+
+      // Wznawiamy grę z poziomu walki
+      resumeFromCombatPhase(session);
+      await saveGameSession(session);
+
+      // Uruchamiamy cykl dla Fazy 5 (Transakcje)
+      await runGameLifecycle(io, session);
 
     } catch (error: any) {
       socket.emit('game:error', { message: error.message });
