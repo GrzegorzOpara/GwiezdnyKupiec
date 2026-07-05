@@ -130,6 +130,9 @@ io.use(async (socket, next) => {
   }
 });
 
+import { registerLobbyHandlers } from './socket/lobbyHandler';
+import { registerGameHandlers } from './socket/gameHandler';
+
 io.on('connection', (socket) => {
   const user = (socket as any).user;
   console.log(`[Socket.io] Połączono użytkownika: ${user.name} (Socket ID: ${socket.id})`);
@@ -139,129 +142,9 @@ io.on('connection', (socket) => {
     userId: user.uid,
   });
 
-  // ---------------------------------------------------------------------------
-  // OBSŁUGA LOBBY (WebSockets)
-  // ---------------------------------------------------------------------------
-
-  // 1. Pobranie listy aktywnych gier w lobby
-  socket.on('lobby:list', async () => {
-    try {
-      const activeSessions = await getActiveSessions();
-      const mappedSessions = activeSessions.map(s => ({
-        sessionId: s.sessionId,
-        hostUid: s.hostUid,
-        playersCount: Object.keys(s.players).length,
-        playersNames: Object.values(s.players).map(p => p.characterName),
-        createdAt: s.createdAt
-      }));
-      socket.emit('lobby:list:response', { success: true, lobbies: mappedSessions });
-    } catch (error: any) {
-      socket.emit('lobby:error', { message: 'Nie udało się pobrać listy lobby: ' + error.message });
-    }
-  });
-
-  // 2. Utworzenie nowej gry i dołączenie jako postać gracza
-  socket.on('lobby:create', async (data: { sessionId: string; characterName: string }) => {
-    try {
-      const { sessionId, characterName } = data;
-      if (!sessionId || !characterName) {
-        return socket.emit('lobby:error', { message: 'ID sesji oraz nazwa postaci są wymagane.' });
-      }
-
-      // Sprawdzenie czy gra już istnieje
-      const existing = await getGameSession(sessionId);
-      if (existing) {
-        return socket.emit('lobby:error', { message: `Sesja gry o ID '${sessionId}' już istnieje.` });
-      }
-
-      // Stworzenie sesji
-      const session = await createGameSession(sessionId, user.uid);
-      
-      // Dodanie gracza startowego
-      const player = createInitialPlayer(user.uid, characterName);
-      session.players[user.uid] = player;
-      
-      await saveGameSession(session);
-
-      socket.join(sessionId);
-      socket.emit('lobby:joined', { success: true, session });
-      console.log(`[Lobby] Gracz ${characterName} (UID: ${user.uid}) stworzył i dołączył do gry: ${sessionId}`);
-    } catch (error: any) {
-      socket.emit('lobby:error', { message: 'Nie udało się stworzyć gry: ' + error.message });
-    }
-  });
-
-  // 3. Dołączenie do istniejącej gry
-  socket.on('lobby:join', async (data: { sessionId: string; characterName: string }) => {
-    try {
-      const { sessionId, characterName } = data;
-      if (!sessionId || !characterName) {
-        return socket.emit('lobby:error', { message: 'ID sesji oraz nazwa postaci są wymagane.' });
-      }
-
-      const session = await getGameSession(sessionId);
-      if (!session) {
-        return socket.emit('lobby:error', { message: `Sesja gry o ID '${sessionId}' nie istnieje.` });
-      }
-
-      if (session.status !== 'LOBBY') {
-        return socket.emit('lobby:error', { message: 'Ta gra już się rozpoczęła lub zakończyła.' });
-      }
-
-      const playersCount = Object.keys(session.players).length;
-      if (playersCount >= 6) {
-        return socket.emit('lobby:error', { message: 'Ta gra jest już pełna (maksymalnie 6 graczy).' });
-      }
-
-      // Stworzenie i dodanie nowej postaci
-      const player = createInitialPlayer(user.uid, characterName);
-      session.players[user.uid] = player;
-
-      await saveGameSession(session);
-
-      socket.join(sessionId);
-      socket.emit('lobby:joined', { success: true, session });
-      
-      // Poinformowanie innych graczy w pokoju o dołączeniu
-      io.to(sessionId).emit('lobby:updated', { session });
-      console.log(`[Lobby] Gracz ${characterName} (UID: ${user.uid}) dołączył do gry: ${sessionId}`);
-    } catch (error: any) {
-      socket.emit('lobby:error', { message: 'Nie udało się dołączyć do gry: ' + error.message });
-    }
-  });
-
-  // 4. Rozpoczęcie gry przez hosta
-  socket.on('lobby:start', async (data: { sessionId: string }) => {
-    try {
-      const { sessionId } = data;
-      if (!sessionId) {
-        return socket.emit('lobby:error', { message: 'ID sesji jest wymagane.' });
-      }
-
-      const session = await getGameSession(sessionId);
-      if (!session) {
-        return socket.emit('lobby:error', { message: `Sesja gry o ID '${sessionId}' nie istnieje.` });
-      }
-
-      if (session.hostUid !== user.uid) {
-        return socket.emit('lobby:error', { message: 'Tylko założyciel gry (host) może ją rozpocząć.' });
-      }
-
-      if (session.status !== 'LOBBY') {
-        return socket.emit('lobby:error', { message: 'Gra została już uruchomiona.' });
-      }
-
-      // Zmiana statusu na ACTIVE
-      session.status = 'ACTIVE';
-      await saveGameSession(session);
-
-      // Poinformowanie wszystkich w pokoju o starcie gry
-      io.to(sessionId).emit('game:started', { session });
-      console.log(`[Lobby] Host rozpoczął grę: ${sessionId}`);
-    } catch (error: any) {
-      socket.emit('lobby:error', { message: 'Nie udało się rozpocząć gry: ' + error.message });
-    }
-  });
+  // Rejestracja wydzielonych eventów
+  registerLobbyHandlers(io, socket);
+  registerGameHandlers(io, socket);
 
   socket.on('disconnect', () => {
     console.log(`[Socket.io] Rozłączono użytkownika: ${user.name} (Socket ID: ${socket.id})`);

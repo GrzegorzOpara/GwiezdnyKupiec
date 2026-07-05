@@ -108,9 +108,11 @@ export async function createGameSession(sessionId: string, hostUid: string): Pro
     status: 'LOBBY',
     hostUid,
     currentTurn: 1,
-    currentPhase: 1,
+    currentPhase: 1, // Używamy liczby lub GamePhase.LICYTACJA (enum rzutowany na number)
     players: {},
     marketState: getInitialMarketState(),
+    turnIntents: {},
+    initiativeOrder: [],
     createdAt: new Date().toISOString()
   };
 

@@ -51,13 +51,44 @@ export interface MarketState {
   ppIndicator: Record<TowarId, number>; // wskaźnik popytu/podaży na kalkulatorze P/P (-18 do +18)
 }
 
+export enum GamePhase {
+  LICYTACJA = 1,
+  INICJATYWA = 2,
+  WIADOMOSCI = 3,
+  HIPERSKOKI = 4,
+  TRANSAKCJE = 5,
+  OKAZJE = 6,
+  INWESTYCJE = 7,
+  KONTROLA = 8
+}
+
+export type OfferType = 'BUY' | 'SELL';
+
+export interface TransactionOffer {
+  playerId: string;
+  commodity: TowarId;
+  type: OfferType;
+  price: number;
+  amount: number;
+  systemId: string; // Dodajemy systemId, aby wiedzieć, gdzie odbywa się transakcja
+}
+
+export interface PlayerTurnIntent {
+  initiativeBidHT: number;
+  offers: TransactionOffer[];
+  isSubmitted: boolean; // Czy gracz już zatwierdził swoją turę
+}
+
 export interface GameSession {
   sessionId: string;
   status: GameStatus;
   hostUid: string;
-  currentTurn: number;  // tura od 1 wzwyż
-  currentPhase: number; // faza od 1 do 8
+  currentTurn: number;
+  currentPhase: GamePhase;
+  phaseEndTimeMs?: number; // timestamp końca aktualnej fazy dla timera
   players: Record<string, Player>; // uid -> Player
   marketState: Record<string, MarketState>; // systemId -> MarketState
+  turnIntents: Record<string, PlayerTurnIntent>; // uid -> PlayerTurnIntent (ukryte akcje gracza w Fazie 1)
+  initiativeOrder: string[]; // posortowane uid graczy po rozstrzygnięciu Fazy Inicjatywy
   createdAt: string;
 }
