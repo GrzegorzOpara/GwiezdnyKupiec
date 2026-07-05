@@ -96,6 +96,10 @@ export const GameView: React.FC = () => {
 
   const handleAddMove = () => {
     if (!selectedShipId) return;
+    if (shipMoves.some(m => m.shipId === selectedShipId)) {
+      alert("Ten statek ma już zaplanowany skok w tej turze!");
+      return;
+    }
     setShipMoves([...shipMoves, { shipId: selectedShipId, targetSystemId: targetSystem }]);
   };
 
@@ -278,12 +282,46 @@ export const GameView: React.FC = () => {
           </div>
 
           <h3 className="hud-title" style={{ fontSize: '1rem', marginTop: '1rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}><Factory size={16} /> Fabryki i Magazyny</h3>
-          <div style={{ fontSize: '0.8rem' }}>
-            {Object.keys(currentPlayer?.magazyny || {}).map((sysId) => (
-              <div key={sysId} style={{ marginBottom: '0.5rem' }}>
-                <strong>{sysId.toUpperCase()}:</strong> {Object.keys(currentPlayer.magazyny[sysId]).map(c => currentPlayer.magazyny[sysId][c as TowarId] > 0 ? `${c}: ${currentPlayer.magazyny[sysId][c as TowarId]} ` : '').join('')}
-              </div>
-            ))}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', fontSize: '0.8rem' }}>
+            {/* Magazyny */}
+            <div>
+              <div style={{ fontWeight: 'bold', color: 'var(--text-muted)', marginBottom: '0.25rem', letterSpacing: '0.5px' }}>MAGAZYNY (TOWARY):</div>
+              {currentPlayer && Object.keys(currentPlayer.magazyny || {}).some(sysId => Object.values(currentPlayer.magazyny[sysId]).some(v => v > 0)) ? (
+                Object.keys(currentPlayer.magazyny).map((sysId) => {
+                  const items = Object.keys(currentPlayer.magazyny[sysId])
+                    .filter(c => currentPlayer.magazyny[sysId][c as TowarId] > 0)
+                    .map(c => `${c}: ${currentPlayer.magazyny[sysId][c as TowarId]}`);
+                  if (items.length === 0) return null;
+                  return (
+                    <div key={sysId} style={{ marginBottom: '0.25rem' }}>
+                      <span style={{ color: 'var(--neon-cyan)' }}>{sysId.replace('_', ' ').toUpperCase()}:</span> {items.join(', ')}
+                    </div>
+                  );
+                })
+              ) : (
+                <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Brak towarów.</span>
+              )}
+            </div>
+
+            {/* Fabryki */}
+            <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '0.5rem' }}>
+              <div style={{ fontWeight: 'bold', color: 'var(--text-muted)', marginBottom: '0.25rem', letterSpacing: '0.5px' }}>FABRYKI (PRODUKCJA):</div>
+              {currentPlayer && Object.keys(currentPlayer.fabryki || {}).some(sysId => Object.values(currentPlayer.fabryki[sysId]).some(v => v > 0)) ? (
+                Object.keys(currentPlayer.fabryki).map((sysId) => {
+                  const items = Object.keys(currentPlayer.fabryki[sysId])
+                    .filter(c => currentPlayer.fabryki[sysId][c as TowarId] > 0)
+                    .map(c => `${c} (Lvl ${currentPlayer.fabryki[sysId][c as TowarId]})`);
+                  if (items.length === 0) return null;
+                  return (
+                    <div key={sysId} style={{ marginBottom: '0.25rem' }}>
+                      <span style={{ color: 'var(--neon-cyan)' }}>{sysId.replace('_', ' ').toUpperCase()}:</span> {items.join(', ')}
+                    </div>
+                  );
+                })
+              ) : (
+                <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Brak fabryk.</span>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -419,10 +457,15 @@ export const GameView: React.FC = () => {
               {shipMoves.length > 0 && (
                 <div style={{ border: '1px solid var(--border-cyan)', padding: '0.75rem', borderRadius: '4px' }}>
                   <h4 style={{ fontSize: '0.8rem', color: 'var(--neon-cyan)', marginBottom: '0.4rem' }}>Zaplanowane loty:</h4>
-                  <ul style={{ fontSize: '0.85rem' }}>
-                    {shipMoves.map((m, i) => (
-                      <li key={i}>Statek ID {m.shipId.substring(0, 5)}... leci do {m.targetSystemId.toUpperCase()}</li>
-                    ))}
+                  <ul style={{ fontSize: '0.85rem', listStyle: 'none', paddingLeft: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                    {shipMoves.map((m, i) => {
+                      const ship = currentPlayer?.statki.find((s: any) => s.id === m.shipId);
+                      return (
+                        <li key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                          🚀 <strong style={{ color: 'var(--neon-cyan)' }}>{ship ? ship.nazwa : 'Nieznany statek'}</strong> leci do <strong style={{ color: 'var(--neon-amber)' }}>{m.targetSystemId.replace('_', ' ').toUpperCase()}</strong>
+                        </li>
+                      );
+                    })}
                   </ul>
                 </div>
               )}
@@ -567,18 +610,52 @@ export const GameView: React.FC = () => {
               <div>
                 <h4 className="hud-title" style={{ fontSize: '0.9rem', marginBottom: '0.75rem' }}>Rozbudowa Fabryk (100 HT za poziom)</h4>
                 <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                  <select className="input-futuristic" value={factorySystem} onChange={(e) => setFactorySystem(e.target.value)}>
-                    <option value="mu_herculis">Mu Herculis</option>
-                    <option value="tau_ceti">Tau Ceti</option>
-                  </select>
-                  <select className="input-futuristic" value={factoryCommodity} onChange={(e) => setFactoryCommodity(e.target.value as TowarId)}>
-                    <option value="izotopy">Izotopy</option>
-                    <option value="polimery">Polimery</option>
-                  </select>
-                  <input type="number" className="input-futuristic" style={{ width: '80px' }} value={factorySize} onChange={(e) => setFactorySize(Math.max(1, parseInt(e.target.value) || 1))} />
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Układ:</label>
+                    <select className="input-futuristic" value={factorySystem} onChange={(e) => setFactorySystem(e.target.value)}>
+                      <option value="mu_herculis">Mu Herculis</option>
+                      <option value="tau_ceti">Tau Ceti</option>
+                      <option value="beta_hydri">Beta Hydri</option>
+                      <option value="epsilon_eridani">Epsilon Eridani</option>
+                      <option value="gamma_leporis">Gamma Leporis</option>
+                      <option value="sigma_octantis">Sigma Octantis</option>
+                    </select>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Towar:</label>
+                    <select className="input-futuristic" value={factoryCommodity} onChange={(e) => setFactoryCommodity(e.target.value as TowarId)}>
+                      <option value="izotopy">Izotopy</option>
+                      <option value="polimery">Polimery</option>
+                      <option value="podzespoly">Podzespoły</option>
+                      <option value="zywnosc">Żywność</option>
+                    </select>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Rozmiar (+Lvl):</label>
+                    <input type="number" className="input-futuristic" style={{ width: '80px' }} value={factorySize} onChange={(e) => setFactorySize(Math.max(1, parseInt(e.target.value) || 1))} />
+                  </div>
                   <button onClick={handleAddFactoryPurchase} className="btn-futuristic">Buduj Fabrykę</button>
                 </div>
               </div>
+
+              {/* Podsumowanie zakupów w tej turze */}
+              {(shipPurchases.length > 0 || factoryPurchases.length > 0) && (
+                <div style={{ border: '1px solid var(--border-cyan)', padding: '1rem', borderRadius: '4px', marginTop: '0.5rem' }}>
+                  <h4 style={{ fontSize: '0.85rem', color: 'var(--neon-cyan)', marginBottom: '0.5rem' }}>Zamówienia inwestycyjne w kolejce:</h4>
+                  <ul style={{ listStyleType: 'none', display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.85rem' }}>
+                    {shipPurchases.map((sp, idx) => (
+                      <li key={`ship-${idx}`} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '0.2rem' }}>
+                        🚢 Kupno statku <strong style={{ color: 'var(--neon-cyan)' }}>[{sp.hullType}]</strong> w stoczni MU HERCULIS z modułami: {sp.modules.join(', ') || 'brak'}
+                      </li>
+                    ))}
+                    {factoryPurchases.map((fp, idx) => (
+                      <li key={`factory-${idx}`} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '0.2rem' }}>
+                        🏭 Rozbudowa fabryki <strong style={{ color: 'var(--neon-cyan)' }}>{fp.commodity}</strong> o +{fp.size} poziom(y) w {fp.systemId.replace('_', ' ').toUpperCase()}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
 
