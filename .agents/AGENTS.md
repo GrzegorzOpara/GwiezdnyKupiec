@@ -27,3 +27,11 @@ Ten plik definiuje reguły i kontekst współpracy dla każdego agenta AI urucha
     *   **GCP Firestore:** Trwałe przechowywanie kont użytkowników, statystyk i punktów kontrolnych stanu gier.
     *   **Redis:** Błyskawiczna pamięć podręczna dla trwających gier oraz synchronizacja Socket.io.
 *   **Hostowanie chmurowe (GCP):** Docelowo aplikacja i kontener Redis będą działać w klastrze **GKE**, co eliminuje dodatkowe opłaty za zewnętrzne usługi Redis. Frontend w React będzie hostowany za darmo na **Firebase Hosting**.
+
+---
+
+## 4. Zautomatyzowane Testy (Vitest)
+*   **Obowiązek pisania testów:** Każda nowa logika biznesowa (np. obliczenia rynkowe, mechanika skoków, logika walki) oraz funkcje pomocnicze (utils) muszą posiadać odpowiadające im testy jednostkowe w Vitest.
+*   **Testy integracyjne baz danych:** Operacje na Firestore muszą być testowane integracyjnie przy użyciu lokalnego emulatora Firestore (z zachowaniem dynamicznego importu w testach w celu uniknięcia problemów z ESM hoisting).
+*   **Regresja:** Przed zakończeniem jakiegokolwiek zadania i commitowaniem zmian, agent ma obowiązek uruchomić cały zestaw testów (`npm run test`) i upewnić się, że wszystkie testy przechodzą pomyślnie.
+
