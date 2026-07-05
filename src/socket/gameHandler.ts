@@ -41,6 +41,22 @@ export async function runGameLifecycle(io: Server, session: GameSession): Promis
   }
 
   if (needsInput) {
+    // Resetujemy turnIntents i gotowość (isSubmitted) przed rozpoczęciem nowej fazy interaktywnej
+    session.turnIntents = {};
+    for (const uid of Object.keys(session.players)) {
+      session.turnIntents[uid] = { 
+        initiativeBidHT: 0, 
+        offers: [], 
+        shipMoves: [], 
+        shipPurchases: [], 
+        factoryPurchases: [],
+        loanRequests: 0,
+        loanRepayments: 0,
+        loadPassengers: [],
+        isSubmitted: false 
+      };
+    }
+
     const durationSeconds = getPhaseDuration(session.currentPhase, session.settings?.turnDurationSeconds);
     
     if (durationSeconds > 0) {
@@ -88,14 +104,15 @@ export async function runGameLifecycle(io: Server, session: GameSession): Promis
   }
 }
 
-function getPhaseDuration(phase: number, baseDuration: number = 30): number {
-  if (baseDuration === 0) return 0; // Infinite timer
+function getPhaseDuration(phase: number, baseDuration?: number): number {
+  const duration = (baseDuration !== undefined && baseDuration !== null) ? baseDuration : 30;
+  if (duration === 0) return 0; // Infinite timer
   
   switch (phase) {
-    case GamePhase.LICYTACJA: return Math.max(10, Math.ceil(baseDuration * 0.7)); // Licytacja trochę krócej
-    case GamePhase.HIPERSKOKI: return baseDuration;
-    case GamePhase.TRANSAKCJE: return Math.ceil(baseDuration * 1.3); // Transakcje trochę dłużej
-    case GamePhase.INWESTYCJE: return baseDuration;
+    case GamePhase.LICYTACJA: return Math.max(10, Math.ceil(duration * 0.5)); // Bidding - krótko (50% bazy)
+    case GamePhase.HIPERSKOKI: return Math.max(10, Math.ceil(duration * 0.8)); // Hiperskoki - średnio (80% bazy)
+    case GamePhase.TRANSAKCJE: return Math.max(20, Math.ceil(duration * 1.5)); // Transakcje - najdłużej (150% bazy)
+    case GamePhase.INWESTYCJE: return Math.max(15, Math.ceil(duration * 1.2)); // Inwestycje - średnio-długo (120% bazy)
     default: return 0;
   }
 }
