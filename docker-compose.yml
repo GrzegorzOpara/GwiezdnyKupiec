@@ -1,0 +1,29 @@
+services:
+  game-server:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    environment:
+      - PORT=3000
+      - REDIS_URL=redis://redis:6379
+      - FIRESTORE_EMULATOR_HOST=firestore-emulator:8080
+      - FIRESTORE_PROJECT_ID=gwiezdny-kupiec-dev
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+    depends_on:
+      - redis
+      - firestore-emulator
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+
+  firestore-emulator:
+    image: mtlynch/firestore-emulator
+    ports:
+      - "8080:8080"
+    environment:
+      - FIRESTORE_PROJECT_ID=gwiezdny-kupiec-dev
