@@ -33,6 +33,10 @@ export function registerGameHandlers(io: Server, socket: Socket) {
           offers: [], 
           shipMoves: [], 
           shipPurchases: [], 
+          factoryPurchases: [],
+          loanRequests: 0,
+          loanRepayments: 0,
+          loadPassengers: [],
           isSubmitted: false 
         };
       }

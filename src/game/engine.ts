@@ -60,7 +60,7 @@ export function resolveTransakcjePhase(session: GameSession): void {
 
     if (!intent || !intent.offers || intent.offers.length === 0) continue;
 
-    // Przetwarzanie ofert gracza w tej turze
+    // Przetwarzanie ofert gracza w tej turze (sekwencyjnie wg inicjatywy)
     for (const offer of intent.offers) {
       const market = session.marketState[offer.systemId];
       if (!market) continue;
@@ -71,23 +71,14 @@ export function resolveTransakcjePhase(session: GameSession): void {
           market,
           offer.commodity,
           offer.amount,
-          offer.price, // Gracz deklaruje cenę w ofercie (w MVP dla uproszczenia rynkowego bierzemy pod uwagę to co napisał, ale docelowo powinno tu być porównanie z ofertami innych)
+          offer.limitPrice, // Gracz deklaruje limit
           offer.type === 'BUY'
         );
+        // NATYCHMIASTOWA fluktuacja rynku po transakcji
+        resolveMarketFluctuation(market, offer.commodity);
       } catch (error: any) {
-        // Oferta nie powiodła się (np. brak gotówki, brak towaru)
-        // W prawdziwej grze logowalibyśmy to dla gracza, tu ignorujemy i przechodzimy do następnej
         console.warn(`[Engine] Transakcja odrzucona dla ${player.characterName}: ${error.message}`);
       }
-    }
-  }
-
-  // Po wykonaniu wszystkich transakcji kupna/sprzedaży w tej fazie,
-  // musimy zaktualizować ceny towarów w każdym układzie gwiezdnym zgodnie z nowymi pozycjami P/P.
-  for (const sysId of Object.keys(session.marketState)) {
-    const market = session.marketState[sysId];
-    for (const commodity of Object.keys(market.prices) as any[]) {
-      resolveMarketFluctuation(market, commodity);
     }
   }
 }
@@ -105,9 +96,12 @@ export function resolveWiadomosciOkazjePhase(session: GameSession): void {
 
 /**
  * Faza 4: Hiperskoki
- * Przesuwa statki zgodnie z deklaracjami graczy, pobiera paliwo/HT.
+ * Przesuwa statki zgodnie z deklaracjami graczy, pobiera paliwo.
+ * Zwraca true jeśli wykryto walkę (Piraci), powodując pauzę.
  */
-export function resolveHiperskokiPhase(session: GameSession): void {
+export function resolveHiperskokiPhase(session: GameSession): boolean {
+  let combatDetected = false;
+
   for (const uid of session.initiativeOrder) {
     const player = session.players[uid];
     const intent = session.turnIntents[uid];
@@ -121,6 +115,7 @@ export function resolveHiperskokiPhase(session: GameSession): void {
         if (player.gotowka >= jumpCost) {
           player.gotowka -= jumpCost;
           ship.lokacja.systemId = move.targetSystemId;
+          ship.lokacja.obszar = 'PRZESTRZEN'; // statki w locie trafiają w przestrzeń kosmiczną
           
           // Rzut na uszkodzenia, jeśli brak "Bezpiecznego Skoku"
           if (!ship.moduly.includes('Bezpieczny skok')) {
@@ -130,15 +125,35 @@ export function resolveHiperskokiPhase(session: GameSession): void {
                console.warn(`[Engine] Statek ${ship.nazwa} gracza ${player.characterName} uszkodzony w nadprzestrzeni!`);
             }
           }
+
+          // Dostarczenie pasażerów do ich celów podróży
+          if (ship.pasazerowie && ship.pasazerowie.length > 0) {
+            const delivered = ship.pasazerowie.filter(p => p.celSystemId === ship.lokacja.systemId);
+            if (delivered.length > 0) {
+              const reward = delivered.reduce((sum, p) => sum + p.nagrodaHT, 0);
+              player.gotowka += reward;
+              ship.pasazerowie = ship.pasazerowie.filter(p => p.celSystemId !== ship.lokacja.systemId);
+              console.log(`[Engine] Gracz ${player.characterName} dowiózł pasażerów do ${ship.lokacja.systemId}. Nagroda: ${reward} HT!`);
+            }
+          }
+
+          // Rzut na Piratów (15% szans w przestrzeni)
+          const pirateRoll = Math.random();
+          if (pirateRoll < 0.15) {
+            combatDetected = true;
+            console.log(`[Engine] UWAGA! Piraci przechwycili statek ${ship.nazwa}!`);
+          }
         }
       }
     }
   }
+
+  return combatDetected;
 }
 
 /**
  * Faza 7: Inwestycje
- * Gracze kupują nowe statki, płacą podatki od utrzymania floty.
+ * Gracze kupują nowe statki, fabryki, biorą pożyczki i spłacają podatki.
  */
 export function resolveInwestycjePhase(session: GameSession): void {
   for (const uid of session.initiativeOrder) {
@@ -146,13 +161,57 @@ export function resolveInwestycjePhase(session: GameSession): void {
     const intent = session.turnIntents[uid];
     if (!intent) continue;
 
-    // Pobranie podatku imperialnego na koniec tury (10 HT od każdego statku)
+    // 1. Utrzymanie floty (Podatek imperialny: 10 HT od każdego statku)
     const tax = player.statki.length * 10;
-    player.gotowka = Math.max(0, player.gotowka - tax);
+    player.gotowka -= tax; // może wejść na minus na chwilę
 
+    // 2. Pożyczki bankowe
+    if (intent.loanRequests && intent.loanRequests > 0) {
+      // Bierzemy nową pożyczkę (w MVP uproszczony brak sprawdzania limitu zdolności)
+      player.dlugBankowy += intent.loanRequests;
+      player.gotowka += intent.loanRequests;
+    }
+
+    // 3. Spłata odsetek (10% co turę)
+    if (player.dlugBankowy > 0) {
+      const interest = Math.ceil(player.dlugBankowy * 0.1);
+      player.gotowka -= interest;
+    }
+
+    // 4. Spłata długu
+    if (intent.loanRepayments && intent.loanRepayments > 0) {
+      const repayment = Math.min(intent.loanRepayments, player.gotowka, player.dlugBankowy);
+      if (repayment > 0) {
+        player.gotowka -= repayment;
+        player.dlugBankowy -= repayment;
+      }
+    }
+
+    // Jeśli gracz jest mocno na minusie po podatkach i odsetkach (Bankructwo)
+    if (player.gotowka < 0) {
+      player.dlugBankowy += Math.abs(player.gotowka);
+      player.gotowka = 0;
+    }
+
+    // Kara za przekroczenie długu (Limit kredytowy wynosi np. 300 HT)
+    if (player.dlugBankowy > 300) {
+      console.warn(`[Engine] Gracz ${player.characterName} przekroczył limit kredytowy (${player.dlugBankowy} HT / 300 HT)!`);
+      if (player.statki.length > 0) {
+        const seizedShip = player.statki.pop(); // Konfiskujemy ostatni statek
+        player.dlugBankowy = Math.max(0, player.dlugBankowy - 150);
+        player.reputacja = Math.max(0, player.reputacja - 5);
+        console.warn(`[Engine] Bank skonfiskował statek ${seizedShip?.nazwa} gracza ${player.characterName} i zmniejszył dług o 150 HT.`);
+      } else {
+        player.reputacja = Math.max(0, player.reputacja - 10);
+        player.magazyny = {}; 
+        player.dlugBankowy = Math.max(0, player.dlugBankowy - 100);
+        console.warn(`[Engine] Brak statków! Bank skonfiskował towary z magazynów i obniżył reputację gracza ${player.characterName} o 10.`);
+      }
+    }
+
+    // 5. Zakup statków
     if (intent.shipPurchases && intent.shipPurchases.length > 0) {
       for (const purchase of intent.shipPurchases) {
-        // Oblicz koszt (200 HT + 50 za każdy dodany moduł)
         const cost = 200 + purchase.modules.length * 50;
         if (player.gotowka >= cost) {
           player.gotowka -= cost;
@@ -163,10 +222,47 @@ export function resolveInwestycjePhase(session: GameSession): void {
             moduly: purchase.modules,
             klasaZalogi: 'C',
             ladunek: { izotopy: 0, polimery: 0, podzespoly: 0, zywnosc: 0 },
-            pasazerowie: 0,
+            pasazerowie: [],
             lokacja: { systemId: purchase.systemId, obszar: 'STOCZNIA' },
             uszkodzenia: []
           });
+        }
+      }
+    }
+
+    // 6. Zakup fabryk
+    if (intent.factoryPurchases && intent.factoryPurchases.length > 0) {
+      for (const f of intent.factoryPurchases) {
+        const cost = f.size * 100;
+        if (player.gotowka >= cost) {
+          player.gotowka -= cost;
+          if (!player.fabryki[f.systemId]) player.fabryki[f.systemId] = { izotopy: 0, polimery: 0, podzespoly: 0, zywnosc: 0 };
+          player.fabryki[f.systemId][f.commodity] += f.size;
+        }
+      }
+    }
+
+    // 7. Załadunek pasażerów
+    if (intent.loadPassengers && intent.loadPassengers.length > 0) {
+      const SYSTEM_IDS = ['mu_herculis', 'tau_ceti', 'beta_hydri', 'epsilon_eridani', 'gamma_leporis', 'sigma_octantis'];
+      for (const req of intent.loadPassengers) {
+        const ship = player.statki.find(s => s.id === req.shipId);
+        if (ship && (ship.lokacja.obszar === 'PORT' || ship.lokacja.obszar === 'STOCZNIA' || ship.lokacja.obszar === 'PLANETA')) {
+          const currentPasCount = ship.pasazerowie ? ship.pasazerowie.length : 0;
+          const maxPas = ship.moduly.filter(m => m.toLowerCase().includes('pasażer') || m.toLowerCase().includes('kabina')).length;
+          
+          const slotsAvailable = maxPas - currentPasCount;
+          const toLoad = Math.min(req.amount, slotsAvailable);
+          
+          for (let i = 0; i < toLoad; i++) {
+             const otherSystems = SYSTEM_IDS.filter(sysId => sysId !== ship.lokacja.systemId);
+             const randomSys = otherSystems[Math.floor(Math.random() * otherSystems.length)];
+             ship.pasazerowie.push({
+               celSystemId: randomSys,
+               nagrodaHT: 50
+             });
+             console.log(`[Engine] Gracz ${player.characterName} załadował pasażera na statek ${ship.nazwa}. Cel: ${randomSys}`);
+          }
         }
       }
     }
@@ -180,6 +276,14 @@ export function resolveInwestycjePhase(session: GameSession): void {
 export function resolveKontrolaPhase(session: GameSession): void {
   // Resetujemy intencje do pustego obiektu przed nową turą
   session.turnIntents = {};
+}
+
+export function resumeFromCombatPhase(session: GameSession): void {
+  if (session.status === 'COMBAT_PAUSE') {
+    session.status = 'ACTIVE';
+    session.currentPhase = GamePhase.TRANSAKCJE; // kontynuacja po walce
+    console.log(`[Engine] Wznowiono grę po walce! Przechodzimy do Fazy Transakcji.`);
+  }
 }
 
 /**
@@ -200,7 +304,12 @@ export function progressToNextPhase(session: GameSession): void {
       session.currentPhase = GamePhase.HIPERSKOKI;
       break;
     case GamePhase.HIPERSKOKI:
-      resolveHiperskokiPhase(session);
+      const combat = resolveHiperskokiPhase(session);
+      if (combat) {
+        session.status = 'COMBAT_PAUSE';
+        // Zatrzymujemy postęp w tym punkcie. Zewnętrzny timer musi poczekać na wznowienie!
+        return;
+      }
       session.currentPhase = GamePhase.TRANSAKCJE;
       break;
     case GamePhase.TRANSAKCJE:

@@ -45,7 +45,7 @@ async function runTest() {
       intent: {
         initiativeBidHT: 20, // P1 wydaje 20 HT na inicjatywę
         offers: [
-          { commodity: 'izotopy', type: 'BUY', price: 10, amount: 2, systemId: 'mu_herculis' }
+          { commodity: 'izotopy', type: 'BUY', limitPrice: 10, amount: 2, systemId: 'mu_herculis' }
         ]
       }
     });
@@ -57,7 +57,7 @@ async function runTest() {
         intent: {
           initiativeBidHT: 50, // P2 wydaje 50 HT
           offers: [
-            { commodity: 'izotopy', type: 'BUY', price: 10, amount: 4, systemId: 'mu_herculis' }
+            { commodity: 'izotopy', type: 'BUY', limitPrice: 10, amount: 4, systemId: 'mu_herculis' }
           ]
         }
       });

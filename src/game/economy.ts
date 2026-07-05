@@ -53,14 +53,23 @@ export function executeTransaction(
   market: MarketState,
   commodity: TowarId,
   amount: number,
-  price: number,
+  limitPrice: number,
   isBuy: boolean
 ): void {
   if (amount <= 0) {
     throw new Error('Ilość towaru musi być większa od zera.');
   }
 
-  const totalCost = amount * price;
+  const currentPrice = market.prices[commodity];
+
+  if (isBuy && currentPrice > limitPrice) {
+    throw new Error(`Cena na rynku (${currentPrice}) przekracza limit kupującego (${limitPrice}).`);
+  }
+  if (!isBuy && currentPrice < limitPrice) {
+    throw new Error(`Cena na rynku (${currentPrice}) jest mniejsza niż oczekiwane minimum sprzedającego (${limitPrice}).`);
+  }
+
+  const totalCost = amount * currentPrice;
 
   // Upewnijmy się, że gracz ma zainicjalizowany magazyn w tym układzie gwiezdnym
   if (!player.magazyny[market.systemId]) {

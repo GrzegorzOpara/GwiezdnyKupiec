@@ -78,7 +78,7 @@ export function createInitialPlayer(uid: string, characterName: string): Player 
       podzespoly: 0,
       zywnosc: 0
     },
-    pasazerowie: 0,
+    pasazerowie: [],
     lokacja: {
       systemId: 'mu_herculis',
       obszar: 'PORT'
@@ -92,6 +92,7 @@ export function createInitialPlayer(uid: string, characterName: string): Player 
     gotowka: 300, // 300 HT
     reputacja: 20, // 20 Reputacja
     powiazania: generateInitialConnections(),
+    dlugBankowy: 0,
     statki: [startingShip],
     magazyny: {},
     fabryki: {}
