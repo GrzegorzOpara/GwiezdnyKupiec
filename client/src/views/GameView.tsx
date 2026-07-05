@@ -43,6 +43,28 @@ export const GameView: React.FC = () => {
   const [factoryPurchases, setFactoryPurchases] = useState<any[]>([]);
 
   const [isReady, setIsReady] = useState(false);
+  const [timeLeft, setTimeLeft] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!gameState || !gameState.phaseEndTimeMs) {
+      setTimeLeft(null);
+      return;
+    }
+
+    const updateTimer = () => {
+      const diff = gameState.phaseEndTimeMs! - Date.now();
+      if (diff <= 0) {
+        setTimeLeft(0);
+      } else {
+        setTimeLeft(Math.ceil(diff / 1000));
+      }
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+
+    return () => clearInterval(interval);
+  }, [gameState?.phaseEndTimeMs, gameState?.currentPhase]);
 
   if (!gameState) return null;
 
@@ -276,14 +298,35 @@ export const GameView: React.FC = () => {
             <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>Zaplanuj swoje akcje handlowe, a następnie zatwierdź turę.</p>
           </div>
           
-          <button 
-            onClick={handleConfirmIntent} 
-            disabled={isReady} 
-            className="btn-futuristic" 
-            style={{ borderColor: isReady ? 'var(--neon-green)' : 'var(--neon-cyan)', color: isReady ? 'var(--neon-green)' : 'var(--neon-cyan)' }}
-          >
-            {isReady ? 'Zatwierdzono' : 'Zatwierdź Turę'}
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            {timeLeft !== null && (
+              <div style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: '1.1rem',
+                color: timeLeft <= 5 ? 'var(--neon-magenta)' : 'var(--neon-amber)',
+                border: `1px solid ${timeLeft <= 5 ? 'var(--border-magenta)' : 'var(--border-amber)'}`,
+                padding: '0.4rem 0.8rem',
+                borderRadius: '4px',
+                boxShadow: timeLeft <= 5 ? 'var(--shadow-magenta)' : 'var(--shadow-amber)',
+                background: 'rgba(0,0,0,0.3)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem'
+              }}>
+                <span>SEC:</span>
+                <span style={{ fontWeight: 'bold' }}>{timeLeft}s</span>
+              </div>
+            )}
+
+            <button 
+              onClick={handleConfirmIntent} 
+              disabled={isReady} 
+              className="btn-futuristic" 
+              style={{ borderColor: isReady ? 'var(--neon-green)' : 'var(--neon-cyan)', color: isReady ? 'var(--neon-green)' : 'var(--neon-cyan)' }}
+            >
+              {isReady ? 'Zatwierdzono' : 'Zatwierdź Turę'}
+            </button>
+          </div>
         </div>
 
         {/* Konsola Akcji Aktywnej Fazy */}
