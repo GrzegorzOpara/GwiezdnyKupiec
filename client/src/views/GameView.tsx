@@ -631,13 +631,66 @@ export const GameView: React.FC = () => {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
                     <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Moduły (+50 HT/szt):</label>
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
-                      <button type="button" onClick={() => handleToggleModule('Towarowy')} className={`btn-futuristic ${modules.includes('Towarowy') ? '' : 'danger'}`} style={{ padding: '0.4rem', fontSize: '0.7rem' }}>Towarowy</button>
-                      <button type="button" onClick={() => handleToggleModule('Kabina pasażerska')} className={`btn-futuristic ${modules.includes('Kabina pasażerska') ? '' : 'danger'}`} style={{ padding: '0.4rem', fontSize: '0.7rem' }}>Pasazerski</button>
-                      <button type="button" onClick={() => handleToggleModule('Bezpieczny skok')} className={`btn-futuristic ${modules.includes('Bezpieczny skok') ? '' : 'danger'}`} style={{ padding: '0.4rem', fontSize: '0.7rem' }}>Bezpieczny skok</button>
+                      <button 
+                        type="button" 
+                        onClick={() => handleToggleModule('Towarowy')} 
+                        className="btn-futuristic" 
+                        style={{ 
+                          padding: '0.4rem', 
+                          fontSize: '0.7rem', 
+                          borderColor: modules.includes('Towarowy') ? 'var(--neon-green)' : 'var(--text-muted)', 
+                          color: modules.includes('Towarowy') ? 'var(--neon-green)' : 'var(--text-muted)' 
+                        }}
+                      >
+                        Towarowy
+                      </button>
+                      <button 
+                        type="button" 
+                        onClick={() => handleToggleModule('Kabina pasażerska')} 
+                        className="btn-futuristic" 
+                        style={{ 
+                          padding: '0.4rem', 
+                          fontSize: '0.7rem', 
+                          borderColor: modules.includes('Kabina pasażerska') ? 'var(--neon-green)' : 'var(--text-muted)', 
+                          color: modules.includes('Kabina pasażerska') ? 'var(--neon-green)' : 'var(--text-muted)' 
+                        }}
+                      >
+                        Pasażerski
+                      </button>
+                      <button 
+                        type="button" 
+                        onClick={() => handleToggleModule('Bezpieczny skok')} 
+                        className="btn-futuristic" 
+                        style={{ 
+                          padding: '0.4rem', 
+                          fontSize: '0.7rem', 
+                          borderColor: modules.includes('Bezpieczny skok') ? 'var(--neon-green)' : 'var(--text-muted)', 
+                          color: modules.includes('Bezpieczny skok') ? 'var(--neon-green)' : 'var(--text-muted)' 
+                        }}
+                      >
+                        Bezpieczny Skok
+                      </button>
                     </div>
                   </div>
 
-                  <button onClick={handleAddShipPurchase} className="btn-futuristic">Zamów Statek</button>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', minWidth: '100px' }}>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Koszt:</label>
+                    <span style={{ fontSize: '0.9rem', fontFamily: 'var(--font-mono)', padding: '0.4rem 0', color: (200 + modules.length * 50) > currentPlayer.gotowka ? 'var(--neon-magenta)' : 'var(--neon-amber)', fontWeight: 'bold' }}>
+                      {200 + modules.length * 50} HT
+                    </span>
+                  </div>
+
+                  <button 
+                    onClick={handleAddShipPurchase} 
+                    disabled={(200 + modules.length * 50) > currentPlayer.gotowka} 
+                    className="btn-futuristic"
+                    style={{
+                      borderColor: (200 + modules.length * 50) > currentPlayer.gotowka ? 'var(--text-muted)' : 'var(--neon-cyan)',
+                      color: (200 + modules.length * 50) > currentPlayer.gotowka ? 'var(--text-muted)' : 'var(--neon-cyan)'
+                    }}
+                  >
+                    {(200 + modules.length * 50) > currentPlayer.gotowka ? 'Brak środków' : 'Zamów Statek'}
+                  </button>
                 </div>
               </div>
 

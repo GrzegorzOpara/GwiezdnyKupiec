@@ -226,6 +226,9 @@ export function resolveInwestycjePhase(session: GameSession): void {
             lokacja: { systemId: purchase.systemId, obszar: 'STOCZNIA' },
             uszkodzenia: []
           });
+          console.log(`[Engine] Gracz ${player.characterName} kupił statek [${purchase.hullType}] za ${cost} HT`);
+        } else {
+          console.warn(`[Engine] Brak gotówki u ${player.characterName} na statek (${player.gotowka} HT / ${cost} HT)`);
         }
       }
     }
@@ -238,6 +241,9 @@ export function resolveInwestycjePhase(session: GameSession): void {
           player.gotowka -= cost;
           if (!player.fabryki[f.systemId]) player.fabryki[f.systemId] = { izotopy: 0, polimery: 0, podzespoly: 0, zywnosc: 0 };
           player.fabryki[f.systemId][f.commodity] += f.size;
+          console.log(`[Engine] Gracz ${player.characterName} wybudował fabrykę ${f.commodity} Lvl +${f.size} w ${f.systemId} za ${cost} HT`);
+        } else {
+          console.warn(`[Engine] Brak gotówki u ${player.characterName} na fabrykę (${player.gotowka} HT / ${cost} HT)`);
         }
       }
     }
