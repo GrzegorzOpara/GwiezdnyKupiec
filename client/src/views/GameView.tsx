@@ -215,9 +215,44 @@ export const GameView: React.FC = () => {
     );
   }
 
+  const getPriceExtremes = () => {
+    const extremes: Record<string, { minPrice: number; maxPrice: number; minSystems: string[]; maxSystems: string[] }> = {
+      izotopy: { minPrice: 99, maxPrice: 0, minSystems: [], maxSystems: [] },
+      polimery: { minPrice: 99, maxPrice: 0, minSystems: [], maxSystems: [] },
+      podzespoly: { minPrice: 99, maxPrice: 0, minSystems: [], maxSystems: [] },
+      zywnosc: { minPrice: 99, maxPrice: 0, minSystems: [], maxSystems: [] }
+    };
+
+    if (!gameState?.marketState) return extremes;
+
+    const commodities: TowarId[] = ['izotopy', 'polimery', 'podzespoly', 'zywnosc'];
+    const systems = Object.keys(gameState.marketState);
+
+    for (const comm of commodities) {
+      let min = 99;
+      let max = 0;
+      
+      for (const sysId of systems) {
+        const price = gameState.marketState[sysId].prices[comm];
+        if (price < min) min = price;
+        if (price > max) max = price;
+      }
+      extremes[comm].minPrice = min;
+      extremes[comm].maxPrice = max;
+
+      for (const sysId of systems) {
+        const price = gameState.marketState[sysId].prices[comm];
+        if (price === min) extremes[comm].minSystems.push(sysId);
+        if (price === max) extremes[comm].maxSystems.push(sysId);
+      }
+    }
+    return extremes;
+  };
+
   // --- ACTIVE GAMEPLAY VIEW ---
+  const extremes = getPriceExtremes();
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', minHeight: '100vh', gap: '1rem', padding: '1rem' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr 380px', minHeight: '100vh', gap: '1rem', padding: '1rem' }}>
       
       {/* PANEL BOCZNY (HUD GRACZA) */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -673,6 +708,128 @@ export const GameView: React.FC = () => {
           )}
 
         </div>
+      </div>
+
+      {/* PANEL PRAWY - TABLICA CEN I REJESTR KAPITANÓW (PUBLICZNA PLANSZA) */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', overflowY: 'auto', maxHeight: '96vh', paddingRight: '0.25rem' }}>
+        
+        {/* Tablica Cen */}
+        <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          <h3 className="hud-title" style={{ fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <TrendingUp size={16} /> Tablica Cen Galaktycznych
+          </h3>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem', textAlign: 'center' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--border-cyan)', color: 'var(--text-muted)' }}>
+                <th style={{ textAlign: 'left', padding: '0.4rem 0.25rem' }}>Układ</th>
+                <th style={{ padding: '0.4rem 0.25rem' }}>Izot</th>
+                <th style={{ padding: '0.4rem 0.25rem' }}>Poli</th>
+                <th style={{ padding: '0.4rem 0.25rem' }}>Podz</th>
+                <th style={{ padding: '0.4rem 0.25rem' }}>Żywn</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.keys(gameState.marketState).map(sysId => {
+                const sysState = gameState.marketState[sysId];
+                return (
+                  <tr key={sysId} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                    <td style={{ textAlign: 'left', fontWeight: 'bold', padding: '0.4rem 0.25rem', color: 'var(--neon-cyan)' }}>
+                      {sysId.replace('_', ' ').toUpperCase()}
+                    </td>
+                    {['izotopy', 'polimery', 'podzespoly', 'zywnosc'].map(comm => {
+                      const price = sysState.prices[comm as TowarId];
+                      const isMin = extremes[comm].minPrice === price;
+                      const isMax = extremes[comm].maxPrice === price;
+                      
+                      let cellColor = 'var(--text-light)';
+                      let cellBg = 'transparent';
+                      if (isMin) {
+                        cellColor = 'var(--neon-green)';
+                        cellBg = 'rgba(0, 255, 136, 0.08)';
+                      } else if (isMax) {
+                        cellColor = 'var(--neon-magenta)';
+                        cellBg = 'rgba(255, 0, 153, 0.08)';
+                      }
+                      
+                      return (
+                        <td key={comm} style={{ padding: '0.4rem 0.25rem', color: cellColor, backgroundColor: cellBg, fontFamily: 'var(--font-mono)' }}>
+                          {price}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-muted)', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '0.4rem' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}><span style={{ display: 'inline-block', width: '8px', height: '8px', background: 'rgba(0, 255, 136, 0.2)', border: '1px solid var(--neon-green)' }}></span> Kupno (najtaniej)</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}><span style={{ display: 'inline-block', width: '8px', height: '8px', background: 'rgba(255, 0, 153, 0.2)', border: '1px solid var(--neon-magenta)' }}></span> Sprzedaż (najdrożej)</span>
+          </div>
+        </div>
+
+        {/* Rejestr kapitanów i flot */}
+        <div className="glass-panel" style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          <h3 className="hud-title" style={{ fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <Users size={16} /> Rejestr Flot i Kapitanów
+          </h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', overflowY: 'auto' }}>
+            {Object.keys(gameState.players).map(uid => {
+              const player = gameState.players[uid];
+              const isSelf = uid === currentUserId;
+              return (
+                <div key={uid} style={{ 
+                  border: `1px solid ${isSelf ? 'var(--border-green)' : 'rgba(255,255,255,0.08)'}`, 
+                  padding: '0.6rem', 
+                  borderRadius: '4px',
+                  background: isSelf ? 'rgba(0,255,136,0.02)' : 'rgba(0,0,0,0.15)'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 'bold', fontSize: '0.8rem', marginBottom: '0.35rem' }}>
+                    <span style={{ color: isSelf ? 'var(--neon-green)' : 'var(--text-light)' }}>
+                      {player.characterName} {isSelf && '(Ty)'}
+                    </span>
+                    <span style={{ color: 'var(--neon-cyan)', fontSize: '0.75rem' }}>
+                      Rep: {player.reputacja}/40
+                    </span>
+                  </div>
+                  
+                  {/* Flota gracza */}
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+                    <strong>Flota:</strong>
+                    {player.statki.length > 0 ? (
+                      player.statki.map((s: any) => (
+                        <div key={s.id} style={{ paddingLeft: '0.5rem', color: 'var(--text-light)' }}>
+                          🚀 {s.nazwa} [{s.typKadluba}] → {s.lokacja.systemId.toUpperCase()} ({s.lokacja.obszar})
+                        </div>
+                      ))
+                    ) : (
+                      <div style={{ paddingLeft: '0.5rem', fontStyle: 'italic' }}>Brak statków</div>
+                    )}
+                  </div>
+
+                  {/* Fabryki gracza */}
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.35rem' }}>
+                    <strong>Fabryki:</strong>{' '}
+                    {Object.keys(player.fabryki).some(sysId => Object.values(player.fabryki[sysId]).some(v => v > 0)) ? (
+                      Object.keys(player.fabryki).map(sysId => {
+                        const active = Object.keys(player.fabryki[sysId]).filter(c => player.fabryki[sysId][c as TowarId] > 0);
+                        if (active.length === 0) return null;
+                        return (
+                          <span key={sysId} style={{ display: 'block', paddingLeft: '0.5rem', color: 'var(--text-light)' }}>
+                            • {sysId.toUpperCase()}: {active.map(c => `${c} (Lvl ${player.fabryki[sysId][c as TowarId]})`).join(', ')}
+                          </span>
+                        );
+                      })
+                    ) : (
+                      <span style={{ fontStyle: 'italic' }}>Brak fabryk</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
       </div>
 
     </div>
