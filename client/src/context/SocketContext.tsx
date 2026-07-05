@@ -81,6 +81,11 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       console.log('[Socket] Gra rozpoczęta:', data.session);
     });
 
+    newSocket.on('game:phaseStarted', (data: { phase: number; phaseEndTimeMs?: number; session: GameSession }) => {
+      setGameState(data.session);
+      console.log('[Socket] Rozpoczęto nową fazę:', data.phase, data.session);
+    });
+
     newSocket.on('game:phaseResults', (data: { session: GameSession; logs: string[] }) => {
       setGameState(data.session);
       console.log('[Socket] Koniec fazy. Logi:', data.logs);
