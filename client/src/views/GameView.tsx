@@ -5,7 +5,8 @@ import type { TowarId } from '../types/game.types';
 import { Shield, Coins, AlertOctagon, TrendingUp, Compass, Factory, Users } from 'lucide-react';
 
 export const GameView: React.FC = () => {
-  const { gameState, characterName, submitTurnIntent, submitCombatDecision, startGame } = useGameSocket();
+  const { gameState, characterName, submitTurnIntent, submitCombatDecision, startGame, transferCargo } = useGameSocket();
+  const [activeTransferShipId, setActiveTransferShipId] = useState<string | null>(null);
 
   const [bid, setBid] = useState(0);
   
@@ -289,30 +290,90 @@ export const GameView: React.FC = () => {
           <h3 className="hud-title" style={{ fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}><Compass size={16} /> Twoja Flota</h3>
           
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', overflowY: 'auto', maxHeight: '350px' }}>
-            {currentPlayer?.statki.map((ship: any) => (
-              <div key={ship.id} style={{ border: '1px solid var(--border-cyan)', padding: '0.75rem', borderRadius: '4px', background: 'rgba(0,0,0,0.2)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '0.85rem', marginBottom: '0.4rem' }}>
-                  <span>{ship.nazwa}</span>
-                  <span className="hud-accent">[{ship.typKadluba}]</span>
-                </div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.4rem' }}>
-                  Pozycja: {ship.lokacja.systemId.toUpperCase()} ({ship.lokacja.obszar})
-                </div>
-                {ship.uszkodzenia.length > 0 && (
-                  <div style={{ color: 'var(--neon-magenta)', fontSize: '0.75rem', marginBottom: '0.4rem' }}>
-                    Uszkodzenia: {ship.uszkodzenia.join(', ')}
+            {currentPlayer?.statki.map((ship: any) => {
+              const maxCargo = ship.moduly.filter((m: string) => 
+                m.toLowerCase().includes('towarowy') || 
+                m.toLowerCase().includes('ładun') || 
+                m.toLowerCase().includes('kontener')
+              ).length;
+              const currentCargo = Object.values(ship.ladunek).reduce((sum: number, v: any) => sum + v, 0) as number;
+
+              return (
+                <div key={ship.id} style={{ border: '1px solid var(--border-cyan)', padding: '0.75rem', borderRadius: '4px', background: 'rgba(0,0,0,0.2)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '0.85rem', marginBottom: '0.4rem' }}>
+                    <span>{ship.nazwa}</span>
+                    <span className="hud-accent">[{ship.typKadluba}]</span>
                   </div>
-                )}
-                <div style={{ fontSize: '0.75rem', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '0.4rem' }}>
-                  <strong>Ładunek:</strong> {Object.keys(ship.ladunek).map(c => ship.ladunek[c as TowarId] > 0 ? `${c}: ${ship.ladunek[c as TowarId]} ` : '').join('') || 'pusty'}
-                </div>
-                {ship.pasazerowie.length > 0 && (
-                  <div style={{ fontSize: '0.75rem', color: 'var(--neon-green)', marginTop: '0.2rem' }}>
-                    <strong>Pasażerowie:</strong> {ship.pasazerowie.map((p: any) => `Cel: ${p.celSystemId.toUpperCase()} `).join('')}
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.4rem' }}>
+                    Pozycja: {ship.lokacja.systemId.toUpperCase()} ({ship.lokacja.obszar})
                   </div>
-                )}
-              </div>
-            ))}
+                  {ship.uszkodzenia.length > 0 && (
+                    <div style={{ color: 'var(--neon-magenta)', fontSize: '0.75rem', marginBottom: '0.4rem' }}>
+                      Uszkodzenia: {ship.uszkodzenia.join(', ')}
+                    </div>
+                  )}
+                  <div style={{ fontSize: '0.75rem', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '0.4rem' }}>
+                    <strong>Ładunek:</strong> {Object.keys(ship.ladunek).map(c => ship.ladunek[c as TowarId] > 0 ? `${c}: ${ship.ladunek[c as TowarId]} ` : '').join('') || 'pusty'}
+                  </div>
+                  <div style={{ fontSize: '0.75rem', display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                    <span>Pojemność ładowni:</span>
+                    <span className="hud-accent" style={{ fontWeight: 'bold' }}>{currentCargo} / {maxCargo}</span>
+                  </div>
+                  {ship.pasazerowie.length > 0 && (
+                    <div style={{ fontSize: '0.75rem', color: 'var(--neon-green)', marginTop: '0.2rem' }}>
+                      <strong>Pasażerowie:</strong> {ship.pasazerowie.map((p: any) => `Cel: ${p.celSystemId.toUpperCase()} `).join('')}
+                    </div>
+                  )}
+
+                  {/* Panel Przeładunku Towarów */}
+                  {(ship.lokacja.obszar === 'PORT' || ship.lokacja.obszar === 'PLANETA') && (
+                    <div style={{ marginTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '0.4rem' }}>
+                      <button 
+                        type="button"
+                        onClick={() => setActiveTransferShipId(activeTransferShipId === ship.id ? null : ship.id)}
+                        className="btn-futuristic"
+                        style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem', width: '100%', borderColor: 'var(--border-cyan)', height: 'auto' }}
+                      >
+                        {activeTransferShipId === ship.id ? 'Zamknij Przeładunek' : 'Przeładuj Towary'}
+                      </button>
+                      
+                      {activeTransferShipId === ship.id && (
+                        <div style={{ marginTop: '0.4rem', display: 'flex', flexDirection: 'column', gap: '0.4rem', background: 'rgba(0,0,0,0.3)', padding: '0.4rem', borderRadius: '4px' }}>
+                          {['izotopy', 'polimery', 'podzespoly', 'zywnosc'].map((comm) => {
+                            const warehouseQty = currentPlayer.magazyny[ship.lokacja.systemId]?.[comm as TowarId] || 0;
+                            const shipQty = ship.ladunek[comm as TowarId] || 0;
+                            return (
+                              <div key={comm} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.7rem' }}>
+                                <span style={{ textTransform: 'capitalize', width: '70px', textOverflow: 'ellipsis', overflow: 'hidden' }}>{comm}:</span>
+                                <span style={{ color: 'var(--text-muted)' }}>M:{warehouseQty} | S:{shipQty}</span>
+                                <div style={{ display: 'flex', gap: '0.25rem' }}>
+                                  <button 
+                                    type="button"
+                                    disabled={warehouseQty <= 0 || currentCargo >= maxCargo}
+                                    onClick={() => transferCargo(gameState.sessionId, ship.id, comm, 1)}
+                                    style={{ padding: '0.1rem 0.35rem', fontSize: '0.65rem', background: 'rgba(0,255,136,0.12)', border: '1px solid var(--neon-green)', color: 'var(--neon-green)', cursor: 'pointer', borderRadius: '2px' }}
+                                  >
+                                    Ładuj
+                                  </button>
+                                  <button 
+                                    type="button"
+                                    disabled={shipQty <= 0}
+                                    onClick={() => transferCargo(gameState.sessionId, ship.id, comm, -1)}
+                                    style={{ padding: '0.1rem 0.35rem', fontSize: '0.65rem', background: 'rgba(255,0,153,0.12)', border: '1px solid var(--neon-magenta)', color: 'var(--neon-magenta)', cursor: 'pointer', borderRadius: '2px' }}
+                                  >
+                                    Wyładuj
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
             {currentPlayer?.statki.length === 0 && <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Brak statków we flocie.</span>}
           </div>
 

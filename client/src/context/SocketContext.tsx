@@ -16,6 +16,7 @@ interface SocketContextType {
   startGame: (sessionId: string) => void;
   submitTurnIntent: (sessionId: string, intent: any) => void;
   submitCombatDecision: (sessionId: string, decision: 'WALKA' | 'UCIECZKA' | 'PODDANIE') => void;
+  transferCargo: (sessionId: string, shipId: string, commodity: string, amount: number) => void;
 }
 
 const SocketContext = createContext<SocketContextType | undefined>(undefined);
@@ -150,6 +151,10 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     socket?.emit('game:combatDecision', { sessionId, decision });
   };
 
+  const transferCargo = (sessionId: string, shipId: string, commodity: string, amount: number) => {
+    socket?.emit('game:transferCargo', { sessionId, shipId, commodity, amount });
+  };
+
   return (
     <SocketContext.Provider
       value={{
@@ -165,7 +170,8 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         joinLobby,
         startGame,
         submitTurnIntent,
-        submitCombatDecision
+        submitCombatDecision,
+        transferCargo
       }}
     >
       {children}

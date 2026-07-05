@@ -261,4 +261,81 @@ export function registerGameHandlers(io: Server, socket: Socket) {
       socket.emit('game:error', { message: error.message });
     }
   });
+
+  // Transfer towarów: Magazyn <-> Ładownia Statku
+  socket.on('game:transferCargo', async (data: { 
+    sessionId: string; 
+    shipId: string; 
+    commodity: TowarId; 
+    amount: number; // dodatnie = załadunek na statek, ujemne = wyładunek do magazynu
+  }) => {
+    try {
+      const { sessionId, shipId, commodity, amount } = data;
+      if (amount === 0) return;
+
+      const session = await getGameSession(sessionId);
+      if (!session) return socket.emit('game:error', { message: 'Sesja nie istnieje' });
+
+      const player = session.players[user.uid];
+      if (!player) return socket.emit('game:error', { message: 'Nie jesteś uczestnikiem tej gry' });
+
+      const ship = player.statki.find(s => s.id === shipId);
+      if (!ship) return socket.emit('game:error', { message: 'Nie znaleziono statku o podanym ID' });
+
+      // Walidacja lokacji (tylko PORT lub PLANETA)
+      if (ship.lokacja.obszar !== 'PORT' && ship.lokacja.obszar !== 'PLANETA') {
+        return socket.emit('game:error', { message: 'Statek musi znajdować się w porcie lub na planecie, aby dokonać przeładunku' });
+      }
+
+      const systemId = ship.lokacja.systemId;
+
+      // Oblicz pojemność statku (wg modułów towarowych)
+      const maxCargoCapacity = ship.moduly.filter(m => 
+        m.toLowerCase().includes('towarowy') || 
+        m.toLowerCase().includes('ładun') || 
+        m.toLowerCase().includes('kontener')
+      ).length;
+
+      const currentCargoCount = Object.values(ship.ladunek).reduce((sum, v) => sum + v, 0);
+
+      // Inicjalizacja magazynu w tym układzie, jeśli go nie ma
+      if (!player.magazyny[systemId]) {
+        player.magazyny[systemId] = { izotopy: 0, polimery: 0, podzespoly: 0, zywnosc: 0 };
+      }
+
+      if (amount > 0) {
+        // Załadunek na statek
+        const availableInWarehouse = player.magazyny[systemId][commodity] || 0;
+        if (availableInWarehouse < amount) {
+          return socket.emit('game:error', { message: `Brak towaru w magazynie ${systemId.toUpperCase()} (Posiadasz: ${availableInWarehouse}, Chcesz załadować: ${amount})` });
+        }
+
+        if (currentCargoCount + amount > maxCargoCapacity) {
+          return socket.emit('game:error', { message: `Ładownia statku przepełniona! Wolne miejsce: ${maxCargoCapacity - currentCargoCount}, Chcesz załadować: ${amount}` });
+        }
+
+        player.magazyny[systemId][commodity] -= amount;
+        ship.ladunek[commodity] = (ship.ladunek[commodity] || 0) + amount;
+        console.log(`[Cargo] Gracz ${player.characterName} załadował ${amount}x ${commodity} na statek ${ship.nazwa} w ${systemId}`);
+
+      } else {
+        // Wyładunek do magazynu (amount jest ujemne!)
+        const absAmount = Math.abs(amount);
+        const availableOnShip = ship.ladunek[commodity] || 0;
+        if (availableOnShip < absAmount) {
+          return socket.emit('game:error', { message: `Brak towaru na statku (Posiada: ${availableOnShip}, Chcesz wyładować: ${absAmount})` });
+        }
+
+        ship.ladunek[commodity] -= absAmount;
+        player.magazyny[systemId][commodity] += absAmount;
+        console.log(`[Cargo] Gracz ${player.characterName} wyładował ${absAmount}x ${commodity} ze statku ${ship.nazwa} do magazynu w ${systemId}`);
+      }
+
+      await saveGameSession(session);
+      io.to(sessionId).emit('game:state', session);
+
+    } catch (error: any) {
+      socket.emit('game:error', { message: error.message });
+    }
+  });
 }
