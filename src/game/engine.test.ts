@@ -20,6 +20,9 @@ describe('Silnik Gry (Maszyna Stanów) - engine.ts', () => {
       currentPhase: GamePhase.LICYTACJA,
       createdAt: 'timestamp',
       initiativeOrder: [],
+      settings: {
+        turnDurationSeconds: 30
+      },
       players: {
         'playerA': {
           uid: 'playerA', characterName: 'A', gotowka: 100, reputacja: 20,

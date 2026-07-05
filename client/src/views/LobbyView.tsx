@@ -8,13 +8,14 @@ export const LobbyView: React.FC = () => {
   const [gameId, setGameId] = useState('');
   const [characterName, setCharacterName] = useState('');
   const [action, setAction] = useState<'CREATE' | 'JOIN'>('CREATE');
+  const [turnDurationSeconds, setTurnDurationSeconds] = useState(30);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!gameId.trim() || !characterName.trim()) return;
 
     if (action === 'CREATE') {
-      createLobby(gameId.trim(), characterName.trim());
+      createLobby(gameId.trim(), characterName.trim(), turnDurationSeconds);
     } else {
       joinLobby(gameId.trim(), characterName.trim());
     }
@@ -99,6 +100,25 @@ export const LobbyView: React.FC = () => {
               required
             />
           </div>
+ 
+          {action === 'CREATE' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <label style={{ fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text-muted)' }}>
+                Czas na turę (AFK limit)
+              </label>
+              <select
+                className="input-futuristic"
+                value={turnDurationSeconds}
+                onChange={(e) => setTurnDurationSeconds(Number(e.target.value))}
+                style={{ background: 'var(--bg-dark)', color: 'var(--text-light)', border: '1px solid var(--border-cyan)', cursor: 'pointer', padding: '0.5rem' }}
+              >
+                <option value={15}>15 sekund (Szybka gra)</option>
+                <option value={30}>30 sekund (Standard)</option>
+                <option value={60}>60 sekund (Dłuższy namysł)</option>
+                <option value={0}>Nielimitowany (Gra towarzyska)</option>
+              </select>
+            </div>
+          )}
 
           <button type="submit" className="btn-futuristic" style={{ width: '100%', marginTop: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
             {action === 'CREATE' ? (

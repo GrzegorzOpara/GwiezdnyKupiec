@@ -11,7 +11,7 @@ interface SocketContextType {
   characterName: string | null;
   login: (nickname: string) => void;
   logout: () => void;
-  createLobby: (sessionId: string, characterName: string) => void;
+  createLobby: (sessionId: string, characterName: string, turnDurationSeconds?: number) => void;
   joinLobby: (sessionId: string, characterName: string) => void;
   startGame: (sessionId: string) => void;
   submitTurnIntent: (sessionId: string, intent: any) => void;
@@ -71,6 +71,16 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       console.log('[Socket] Otrzymano nowy stan gry:', state);
     });
 
+    newSocket.on('lobby:updated', (data: { session: GameSession }) => {
+      setGameState(data.session);
+      console.log('[Socket] Lobby zaktualizowane:', data.session);
+    });
+
+    newSocket.on('game:started', (data: { session: GameSession }) => {
+      setGameState(data.session);
+      console.log('[Socket] Gra rozpoczęta:', data.session);
+    });
+
     newSocket.on('game:phaseResults', (data: { session: GameSession; logs: string[] }) => {
       setGameState(data.session);
       console.log('[Socket] Koniec fazy. Logi:', data.logs);
@@ -111,10 +121,10 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setGameState(null);
   };
 
-  const createLobby = (sessionId: string, charName: string) => {
+  const createLobby = (sessionId: string, charName: string, turnDurationSeconds?: number) => {
     localStorage.setItem('gt_char_name', charName);
     setCharacterName(charName);
-    socket?.emit('lobby:create', { sessionId, characterName: charName });
+    socket?.emit('lobby:create', { sessionId, characterName: charName, turnDurationSeconds });
   };
 
   const joinLobby = (sessionId: string, charName: string) => {

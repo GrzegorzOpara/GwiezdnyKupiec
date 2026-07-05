@@ -99,5 +99,8 @@ export interface GameSession {
   marketState: Record<string, MarketState>; // systemId -> MarketState
   turnIntents: Record<string, PlayerTurnIntent>; // uid -> PlayerTurnIntent (ukryte akcje gracza w Fazie 1)
   initiativeOrder: string[]; // posortowane uid graczy po rozstrzygnięciu Fazy Inicjatywy
+  settings: {
+    turnDurationSeconds: number; // 0 oznacza czas nielimitowany (brak stopera)
+  };
   createdAt: string;
 }

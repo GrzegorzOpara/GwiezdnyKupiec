@@ -41,45 +41,61 @@ export async function runGameLifecycle(io: Server, session: GameSession): Promis
   }
 
   if (needsInput) {
-    const durationSeconds = getPhaseDuration(session.currentPhase);
-    session.phaseEndTimeMs = Date.now() + durationSeconds * 1000;
-    await saveGameSession(session);
+    const durationSeconds = getPhaseDuration(session.currentPhase, session.settings?.turnDurationSeconds);
+    
+    if (durationSeconds > 0) {
+      session.phaseEndTimeMs = Date.now() + durationSeconds * 1000;
+      await saveGameSession(session);
 
-    // Rozsyłamy status do pokoju
-    io.to(session.sessionId).emit('game:phaseStarted', {
-      phase: session.currentPhase,
-      phaseEndTimeMs: session.phaseEndTimeMs,
-      session
-    });
+      // Rozsyłamy status do pokoju
+      io.to(session.sessionId).emit('game:phaseStarted', {
+        phase: session.currentPhase,
+        phaseEndTimeMs: session.phaseEndTimeMs,
+        session
+      });
 
-    // Rejestrujemy stoper bezpieczeństwa (AFK)
-    activeTimers[session.sessionId] = setTimeout(async () => {
-      try {
-        const updatedSession = await getGameSession(session.sessionId);
-        if (updatedSession && updatedSession.status === 'ACTIVE' && updatedSession.currentPhase === session.currentPhase) {
-          console.log(`[Timer] Czas minął dla Fazy ${updatedSession.currentPhase} w sesji ${updatedSession.sessionId}. Auto-resolve.`);
-          progressToNextPhase(updatedSession);
-          delete updatedSession.phaseEndTimeMs;
-          await saveGameSession(updatedSession);
-          
-          // Uruchamiamy cykl dla kolejnej fazy
-          await runGameLifecycle(io, updatedSession);
+      // Rejestrujemy stoper bezpieczeństwa (AFK)
+      activeTimers[session.sessionId] = setTimeout(async () => {
+        try {
+          const updatedSession = await getGameSession(session.sessionId);
+          if (updatedSession && updatedSession.status === 'ACTIVE' && updatedSession.currentPhase === session.currentPhase) {
+            console.log(`[Timer] Czas minął dla Fazy ${updatedSession.currentPhase} w sesji ${updatedSession.sessionId}. Auto-resolve.`);
+            progressToNextPhase(updatedSession);
+            delete updatedSession.phaseEndTimeMs;
+            await saveGameSession(updatedSession);
+            
+            // Uruchamiamy cykl dla kolejnej fazy
+            await runGameLifecycle(io, updatedSession);
+          }
+        } catch (err) {
+          console.error('[Timer] Błąd stopera fazy:', err);
         }
-      } catch (err) {
-        console.error('[Timer] Błąd stopera fazy:', err);
+      }, durationSeconds * 1000);
+    } else {
+      // Czas nielimitowany - usuwamy ewentualny phaseEndTimeMs
+      if (session.phaseEndTimeMs !== undefined) {
+        delete session.phaseEndTimeMs;
       }
-    }, durationSeconds * 1000);
+      await saveGameSession(session);
+
+      io.to(session.sessionId).emit('game:phaseStarted', {
+        phase: session.currentPhase,
+        session
+      });
+    }
   } else {
     io.to(session.sessionId).emit('game:state', session);
   }
 }
 
-function getPhaseDuration(phase: number): number {
+function getPhaseDuration(phase: number, baseDuration: number = 30): number {
+  if (baseDuration === 0) return 0; // Infinite timer
+  
   switch (phase) {
-    case GamePhase.LICYTACJA: return 20;   // 20 sekund
-    case GamePhase.HIPERSKOKI: return 30;   // 30 sekund
-    case GamePhase.TRANSAKCJE: return 40;   // 40 sekund
-    case GamePhase.INWESTYCJE: return 30;   // 30 sekund
+    case GamePhase.LICYTACJA: return Math.max(10, Math.ceil(baseDuration * 0.7)); // Licytacja trochę krócej
+    case GamePhase.HIPERSKOKI: return baseDuration;
+    case GamePhase.TRANSAKCJE: return Math.ceil(baseDuration * 1.3); // Transakcje trochę dłużej
+    case GamePhase.INWESTYCJE: return baseDuration;
     default: return 0;
   }
 }

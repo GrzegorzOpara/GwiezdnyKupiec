@@ -27,9 +27,9 @@ export function registerLobbyHandlers(io: Server, socket: Socket) {
     }
   });
 
-  socket.on('lobby:create', async (data: { sessionId: string; characterName: string }) => {
+  socket.on('lobby:create', async (data: { sessionId: string; characterName: string; turnDurationSeconds?: number }) => {
     try {
-      const { sessionId, characterName } = data;
+      const { sessionId, characterName, turnDurationSeconds } = data;
       if (!sessionId || !characterName) {
         return socket.emit('lobby:error', { message: 'ID sesji oraz nazwa postaci są wymagane.' });
       }
@@ -39,7 +39,8 @@ export function registerLobbyHandlers(io: Server, socket: Socket) {
         return socket.emit('lobby:error', { message: `Sesja gry o ID '${sessionId}' już istnieje.` });
       }
 
-      const session = await createGameSession(sessionId, user.uid);
+      const turnDuration = turnDurationSeconds !== undefined ? turnDurationSeconds : 30; // Domyślnie 30s
+      const session = await createGameSession(sessionId, user.uid, turnDuration);
       const player = createInitialPlayer(user.uid, characterName);
       session.players[user.uid] = player;
       

@@ -103,7 +103,7 @@ export function createInitialPlayer(uid: string, characterName: string): Player 
 // SESJE GIER
 // -----------------------------------------------------------------------------
 
-export async function createGameSession(sessionId: string, hostUid: string): Promise<GameSession> {
+export async function createGameSession(sessionId: string, hostUid: string, turnDurationSeconds: number = 30): Promise<GameSession> {
   const session: GameSession = {
     sessionId,
     status: 'LOBBY',
@@ -114,6 +114,9 @@ export async function createGameSession(sessionId: string, hostUid: string): Pro
     marketState: getInitialMarketState(),
     turnIntents: {},
     initiativeOrder: [],
+    settings: {
+      turnDurationSeconds
+    },
     createdAt: new Date().toISOString()
   };
 
